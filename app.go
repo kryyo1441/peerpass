@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -14,9 +16,9 @@ import (
 // The frontend never opens its own signaling connection -- it only reacts
 // to these events and calls the bound methods below.
 const (
-	EventPeerJoined = "signal:peer-joined"
-	EventPeerLeft   = "signal:peer-left"
-	EventRoomClosed = "signal:room-closed"
+	EventPeers        = "signal:peers"        // payload: []string, the full current peer list
+	EventRoomClosed   = "signal:room-closed"  // host left; frontend should call LeaveRoom()
+	EventDisconnected = "signal:disconnected" // connection to the signaling server itself died; frontend should call LeaveRoom()
 )
 
 // RoomInfo is the plain-JSON shape returned to the frontend from
@@ -32,7 +34,15 @@ type RoomInfo struct {
 
 // App struct
 type App struct {
-	ctx        context.Context
+	ctx context.Context
+
+	// mu guards client/cancelConn: bound methods (CreateRoom/JoinRoom/
+	// LeaveRoom, called on whatever goroutine Wails dispatches them on) and
+	// shutdown() can run concurrently with each other, and with
+	// handleDisconnect (called from the signalclient read-loop goroutine).
+	// Go has no GIL -- unlike Python, concurrent unsynchronized access to
+	// these fields would be a real data race, not just a slow interleaving.
+	mu         sync.Mutex
 	cancelConn context.CancelFunc
 	client     *signalclient.Client
 }
@@ -75,14 +85,16 @@ func (a *App) connect(addr string, room string) (RoomInfo, error) {
 	a.LeaveRoom() // drop any previous connection first
 
 	connCtx, cancel := context.WithCancel(a.ctx)
-	client, welcome, err := signalclient.Connect(connCtx, addr, signaling.RoomCode(room), a.handleEvent)
+	client, welcome, err := signalclient.Connect(connCtx, addr, signaling.RoomCode(room), a.handleEvent, a.handleDisconnect)
 	if err != nil {
 		cancel()
 		return RoomInfo{}, err
 	}
 
+	a.mu.Lock()
 	a.cancelConn = cancel
 	a.client = client
+	a.mu.Unlock()
 
 	peers := make([]string, len(welcome.Peers))
 	for i, p := range welcome.Peers {
@@ -99,13 +111,16 @@ func (a *App) connect(addr string, room string) (RoomInfo, error) {
 // LeaveRoom closes the current signaling connection, if any. Safe to call
 // when there is no active connection.
 func (a *App) LeaveRoom() {
-	if a.client != nil {
-		a.client.Close()
-		a.client = nil
+	a.mu.Lock()
+	client, cancel := a.client, a.cancelConn
+	a.client, a.cancelConn = nil, nil
+	a.mu.Unlock()
+
+	if client != nil {
+		client.Close()
 	}
-	if a.cancelConn != nil {
-		a.cancelConn()
-		a.cancelConn = nil
+	if cancel != nil {
+		cancel()
 	}
 }
 
@@ -114,11 +129,26 @@ func (a *App) LeaveRoom() {
 // runtime.EventsEmit is safe to call from any goroutine.
 func (a *App) handleEvent(env signaling.Envelope) {
 	switch env.Type {
-	case signaling.TypePeerJoined:
-		runtime.EventsEmit(a.ctx, EventPeerJoined, string(env.From))
-	case signaling.TypePeerLeft:
-		runtime.EventsEmit(a.ctx, EventPeerLeft, string(env.From))
+	case signaling.TypePeerJoined, signaling.TypePeerLeft:
+		var payload signaling.PeerListPayload
+		if err := json.Unmarshal(env.Payload, &payload); err != nil {
+			return
+		}
+		peers := make([]string, len(payload.Peers))
+		for i, p := range payload.Peers {
+			peers[i] = string(p)
+		}
+		runtime.EventsEmit(a.ctx, EventPeers, peers)
 	case signaling.TypeRoomClosed:
 		runtime.EventsEmit(a.ctx, EventRoomClosed)
 	}
+}
+
+// handleDisconnect is called by signalclient when the connection drops for
+// a reason other than our own LeaveRoom()/Close(). It deliberately does not
+// call LeaveRoom() itself (that would run Close() from the read-loop
+// goroutine that just reported its own death) -- it only notifies the
+// frontend, which calls LeaveRoom() in response.
+func (a *App) handleDisconnect() {
+	runtime.EventsEmit(a.ctx, EventDisconnected)
 }
