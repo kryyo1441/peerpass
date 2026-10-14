@@ -209,6 +209,26 @@ proposed direction and to make clear it is unverified until Milestone 4, when
 it will be properly evaluated against the brief's requirement to check current
 documentation and compatibility before committing.
 
+### Update — 2026-10-14, M4 paused; STUN design decision recorded ahead of it
+
+Project owner asked to pause before implementing M4 and discuss STUN
+integration first. Decision for when M4 resumes: a public STUN server
+(e.g. `stun:stun.l.google.com:19302`, or self-hosted later) goes into the
+ICE server configuration at the moment the peer connection is created —
+whichever Pion type corresponds to `RTCConfiguration.iceServers`. This is
+not something to add after the fact; the connection-establishment code
+needs to exist with ICE servers configured from its first version, since
+retrofitting it later means touching code that didn't expect ICE
+candidates to exist at all.
+
+This is a design/config decision, not an empirical one: M4 itself does
+not need to determine whether this machine's actual network requires STUN
+to connect (plausibly moot entirely on localhost/LAN, where M4 is tested).
+Whether STUN is sufficient, or a symmetric/carrier-grade NAT forces a TURN
+fallback, is explicitly Milestone 5's empirical question per the brief —
+tested for real against actual network conditions, not assumed here. TURN
+itself stays fully out of scope until M5.
+
 ---
 
 ## ADR-006: Svelte + TypeScript for the frontend
