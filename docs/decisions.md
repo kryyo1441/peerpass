@@ -120,8 +120,7 @@ fixes.
 ## ADR-002: Signaling/room model designed for N-party from day one
 
 - **Date:** 2026-10-14
-- **Status:** Accepted (design commitment, not yet implemented — implementation
-  lands in Milestone 3)
+- **Status:** Accepted; implemented in Milestone 3 (`internal/signaling`)
 
 ### Context
 
@@ -142,6 +141,35 @@ actually connect for a while. Retrofitting N-party semantics onto a hardcoded
   field, from the start.
 - No premature building of video fan-out or SFU/mesh logic — only the data
   model and arbitration state machine need to tolerate N peers now.
+
+### Update — 2026-10-14, Milestone 3: host-leave semantics decided
+
+Implementing `Hub.Leave` required deciding what happens when a peer
+disconnects. Two cases:
+
+- **Non-host leaves:** removed from the room, remaining peers get a
+  `peer-left` notification, room stays open. Uncontroversial.
+- **Host leaves:** the room closes entirely and every remaining peer gets
+  `room-closed`, rather than e.g. promoting another peer to host. Chosen
+  because the host *is* the game machine in this product — if it's gone,
+  there's nothing left for anyone else to connect to or control. A
+  host-promotion model would be actively misleading (the new "host" still
+  wouldn't be running the game). Revisit only if a future milestone changes
+  what "host" means (e.g. a dedicated server architecture, which is not
+  currently planned).
+
+Verified in `internal/signaling/room_test.go` (`TestLeave_HostClosesRoom`,
+`TestLeave_NonHost`) and in the 3-client integration test
+(`TestLeave_BroadcastsAndClosesHost`).
+
+### Update — 2026-10-14, Milestone 3: room cap set to 8
+
+`MaxPeersPerRoom = 8` in `internal/signaling/room.go`. Arbitrary, not derived
+from any load testing — just a reasonable bound for "host + a handful of
+viewers" that prevents unbounded memory growth from a buggy or malicious
+client hammering `JoinRoom`. Revisit once Phase D (multi-viewer video) picks
+a real mesh/SFU topology and room-size limit, which will likely replace this
+number with something load-tested.
 
 ---
 
@@ -221,3 +249,90 @@ signaling server and knows a room code can join and potentially send input.
 This must be stated plainly in `README.md` from the first working networked
 build, and the application must never be described as safe to expose to the
 open internet before Milestone 9 lands.
+
+### Update — 2026-10-14, Milestone 3: first networked build lands
+
+This ADR's trigger condition is now live: `internal/signalserver` is a real
+networked server. `README.md`'s security section has been updated from "no
+milestone involving networking has landed yet" to the actual interim trust
+model. The signaling binary (`cmd/signal`) binds to `127.0.0.1` by default
+and requires an explicit `-addr` flag to listen on anything else, so the
+no-auth gap doesn't accidentally become internet-reachable by default.
+
+---
+
+## ADR-007: Signaling transport — coder/websocket over gorilla/websocket
+
+- **Date:** 2026-10-14
+- **Status:** Accepted
+
+### Context and problem
+
+The signaling server needs a persistent, bidirectional, low-latency channel
+so peers can be pushed room/peer events (joins, leaves, relayed SDP/ICE from
+M4) without polling. The standard library has no WebSocket server, so this is
+a real dependency decision (brief §12: explain what it does, why it's needed,
+and the alternatives before adding one).
+
+### Verification performed
+
+- `go list -m -versions` on both candidates: `github.com/gorilla/websocket`
+  tops out at `v1.5.3`; `github.com/coder/websocket` is at `v1.8.15`.
+- WebFetch of `pkg.go.dev/github.com/coder/websocket`: v1.8.15 published
+  2026-06-15 (recent, actively released), explicitly documents **native
+  concurrent writes** ("All methods may be called concurrently except for
+  Reader and Read"), zero dependencies, passes the autobahn test suite.
+- WebSearch on gorilla/websocket vs. nhooyr/coder maintenance status:
+  gorilla has an open "no maintainer" issue with sparse recent commits. The
+  search also surfaced a claim that nhooyr/coder was dormant since 2021 --
+  **this claim is contradicted by the pkg.go.dev version/date check above**
+  and was treated as stale/wrong rather than trusted, since it conflicts
+  with primary-source evidence (the actual release list).
+
+### Alternatives considered
+
+| Option | Pros | Cons |
+|---|---|---|
+| coder/websocket | Actively released, zero deps, native concurrent writes (no manual write-mutex needed per connection), context-based API fits Go idioms | Newer/less ubiquitous name recognition than gorilla |
+| gorilla/websocket | Extremely widely used historically, mature protocol implementation | Maintenance in question (open "no maintainer" issue); does **not** support concurrent writes on one connection without external synchronization, which this project's broadcast-while-relaying pattern needs |
+| stdlib-only (SSE + POST) | No dependency at all | Awkward: have to correlate each POST with the right SSE stream per peer; no real benefit over a WebSocket library for this use case |
+
+### Decision
+
+`github.com/coder/websocket` v1.8.15. The deciding factor was concurrent
+write support: the Hub's broadcast pattern (notify existing peers while
+possibly also relaying a targeted message) means multiple goroutines may
+need to write to the same connection around the same time, and coder/
+websocket handles that internally instead of requiring a per-connection
+write mutex we'd have to get right ourselves.
+
+### Consequences
+
+- One external dependency added, justified above.
+- If coder/websocket's maintenance status changes for the worse, gorilla/
+  websocket plus a manual write-mutex per connection is the fallback,
+  not a full redesign.
+
+---
+
+## ADR-008 (proposed, unverified): Signaling server hosting
+
+- **Date:** 2026-10-14
+- **Status:** Proposed, not yet implemented or verified — local-only for now
+
+### Context
+
+The brief requires near-zero hosting cost and prefers a free-tier host over
+requiring the game-hosting player to configure port forwarding (Fly.io,
+Render, Oracle Cloud free tier, or similar).
+
+### Status of verification
+
+**Not yet evaluated.** Milestone 3 only runs `cmd/signal` locally
+(`127.0.0.1:8080`) for development and the two-instance manual test. No
+free-tier host has been signed up for, no deployment has happened, and no
+current pricing/limits have been checked. This ADR is a placeholder for
+Milestone 5 (cross-network connectivity testing), which is also where a real
+deployment would happen -- and only with the project owner's explicit
+permission, since deploying to a third-party service is a remote, externally
+visible action, not a local one.
