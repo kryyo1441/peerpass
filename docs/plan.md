@@ -6,14 +6,16 @@ tracks **current status and open questions**, not the full spec.
 
 ## Current milestone
 
-**Milestone 2 — Wails desktop shell with a verified Go↔frontend call.**
-Milestone 1 (foundation, decisions, docs scaffold) is done.
+**Milestone 3 — minimal signaling flow, N-party room model.** Milestones 1
+(foundation) and 2 (Wails shell, verified Go↔frontend call) are done. Branch
+`feat/wails-shell` is up for review — not yet merged to `main`.
 
 ## Roadmap at a glance
 
 - **Phase A — Foundation**
   - M1: Repo, decisions.md, docs scaffold. ✅ Done (2026-10-14)
-  - M2: Wails shell + verified Go↔Svelte call. 🔄 In progress
+  - M2: Wails shell + verified Go↔Svelte call. ✅ Done (2026-10-14, branch
+    `feat/wails-shell`, not yet merged)
 - **Phase B — Connectivity**
   - M3: Minimal signaling, N-party room model (see ADR-002)
   - M4: WebRTC peer connection + data channel test message (see ADR-003, ADR-004)

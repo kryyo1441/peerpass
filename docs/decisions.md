@@ -53,6 +53,45 @@ trade-off via AskUserQuestion.
   recorded as an update to this ADR, not silently patched.
 - A future v2→v3 migration is accepted as a deferred cost, not ruled out.
 
+### Update — 2026-10-14, webkit2gtk-4.1 finding confirmed
+
+Ran it for real: `wails doctor` on this machine reports `libwebkit: Not Found`
+even with webkit2gtk-4.1 2.54.1 installed — `wails doctor`'s dependency check
+is hardcoded to look for the old `webkit2gtk` (4.0) package name and doesn't
+recognize 4.1. This is a **doctor-command limitation, not an actual build
+blocker**: `wails build -tags webkit2_41` from the repo root completed
+successfully (`Built '.../build/bin/peerpass' in 16.6s`). So Wails v2 on Arch
+with only webkit2gtk-4.1 works, but **every `wails build`/`wails dev` call in
+this project must pass `-tags webkit2_41`** or the Go side won't find the
+right webkit headers. This should be captured in a Makefile/README build
+instructions, not left as something to remember by hand.
+
+Separately, the `svelte-ts` template's `frontend/package.json` pins
+`"vite": "^8.0.13"`, but `@sveltejs/vite-plugin-svelte@^6.0.0` only supports
+vite `^6 || ^7` — `npm install` failed with an ERESOLVE conflict out of the
+box. Fixed by pinning `vite` to `^7.0.0` in `frontend/package.json`. This is a
+real upstream version mismatch in the current Wails v2.16.0 template as of
+2026-10-14, not a mistake on our end.
+
+A third mismatch: the template's `frontend/src/main.ts` instantiates the root
+component with `new App({ target: ... })`, which is the Svelte 4 API. The same
+template pins `"svelte": "^5.55.7"`, and Svelte 5 removed the `new Component()`
+constructor entirely — it throws `component_api_invalid_new` at runtime. This
+was invisible in `wails build`/`svelte-check` (both succeeded) and only
+surfaced as a **blank window** when actually running the app (both the native
+window and the `wails dev` browser view at `localhost:34115` were blank,
+confirmed via screenshot and console errors). Fixed by switching to Svelte 5's
+`mount(App, { target: ... })` API. Verified after the fix: typed a name into
+the running `wails dev` session via browser automation, clicked Greet, and
+confirmed `Hello PeerPass, It's show time!` rendered — i.e. the Go↔Svelte call
+was actually exercised, not just compiled.
+
+**Takeaway recorded for future milestones:** a successful `go vet`/`wails
+build`/`svelte-check` does not prove the UI renders. Milestone 2's
+"verify by actually running it" step caught a bug none of the static checks
+did — this is why the plan requires driving `wails dev` with browser
+automation rather than stopping at a green build.
+
 ### Revisit when
 
 Wails v3 reaches a stable (non-beta) release, or v2 stops receiving security
