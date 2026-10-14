@@ -53,6 +53,63 @@ trade-off via AskUserQuestion.
   recorded as an update to this ADR, not silently patched.
 - A future v2→v3 migration is accepted as a deferred cost, not ruled out.
 
+### Update — 2026-10-14, webkit2gtk-4.1 finding confirmed
+
+Ran it for real: `wails doctor` on this machine reports `libwebkit: Not Found`
+even with webkit2gtk-4.1 2.54.1 installed. (Inference, not directly confirmed
+from Wails source: the doctor check likely looks for the old `webkit2gtk`
+4.0 package name specifically and doesn't recognize 4.1 — plausible but not
+verified by reading the doctor command's code.) This is a **doctor-command
+limitation, not an actual build blocker** — confirmed both ways empirically:
+- `wails build` **without** the tag fails with a real compile error:
+  `pkg-config --cflags ... webkit2gtk-4.0` → `Package 'webkit2gtk-4.0' was
+  not found`, `exit status 1`.
+- `wails build -tags webkit2_41` completes successfully
+  (`Built '.../build/bin/peerpass' in 16.6s`, reproduced again after fixes).
+
+So Wails v2 on Arch with only webkit2gtk-4.1 works, but **every `wails
+build`/`wails dev` call in this project must pass `-tags webkit2_41`**, and
+this has now been verified both ways (fails without it, works with it), not
+just assumed.
+
+Separately, the `svelte-ts` template's `frontend/package.json` pins
+`"vite": "^8.0.13"`, but `@sveltejs/vite-plugin-svelte@^6.0.0` only supports
+vite `^6 || ^7` — `npm install` failed with an ERESOLVE conflict out of the
+box. Fixed by pinning `vite` to `^7.0.0` in `frontend/package.json`. This is a
+real upstream version mismatch in the current Wails v2.16.0 template as of
+2026-10-14, not a mistake on our end.
+
+A third mismatch: the template's `frontend/src/main.ts` instantiates the root
+component with `new App({ target: ... })`, which is the Svelte 4 API. The same
+template pins `"svelte": "^5.55.7"`, and Svelte 5 removed the `new Component()`
+constructor entirely — it throws `component_api_invalid_new` at runtime. This
+was invisible in `wails build`/`svelte-check` (both succeeded) and only
+surfaced as a **blank window** at runtime: the project owner reported the
+native window opened blank mid-session, and the `wails dev` browser view at
+`localhost:34115` was independently confirmed blank via screenshot, with the
+`component_api_invalid_new` exception visible in the browser console. Fixed by
+switching to Svelte 5's `mount(App, { target: ... })` API.
+
+Verified after the fix, in two separate ways:
+- Browser dev view (`localhost:34115`): typed a name via browser automation,
+  clicked Greet, confirmed `Hello PeerPass, It's show time!` rendered — the
+  Go↔Svelte IPC call was actually exercised, not just compiled.
+- Native window: ran the packaged `build/bin/peerpass` binary directly and
+  captured a real screenshot of the live Hyprland/Wayland display (via
+  `grim`, cropped to the window's reported geometry from `hyprctl clients
+  -j`) — confirms the native webkit2gtk window now renders the UI instead of
+  being blank. No input-simulation tool (`ydotool`/`wtype`) was available in
+  this environment to also click Greet *inside* the native window, so that
+  specific click was only exercised through the browser dev view, which runs
+  the identical frontend bundle and Go backend over the same IPC bridge —
+  not a separate mock.
+
+**Takeaway recorded for future milestones:** a successful `go vet`/`wails
+build`/`svelte-check` does not prove the UI renders. Milestone 2's
+"verify by actually running it" step caught a bug none of the static checks
+did — this is why the plan requires driving `wails dev` with browser
+automation rather than stopping at a green build.
+
 ### Revisit when
 
 Wails v3 reaches a stable (non-beta) release, or v2 stops receiving security
@@ -119,6 +176,34 @@ has been performed as of this entry. This ADR exists only to record the
 proposed direction and to make clear it is unverified until Milestone 4, when
 it will be properly evaluated against the brief's requirement to check current
 documentation and compatibility before committing.
+
+---
+
+## ADR-006: Svelte + TypeScript for the frontend
+
+- **Date:** 2026-10-14
+- **Status:** Accepted, per the brief's direct instruction
+
+### Context
+
+The brief specifies Svelte with TypeScript "unless there is a compelling
+documented reason to choose another frontend."
+
+### Verification performed
+
+None beyond using it. No benchmark or comparison against React/Vue/vanilla
+was run — there was no documented reason surfaced to deviate from the brief's
+instruction, so Svelte+TS was used as specified rather than independently
+re-evaluated. The one real friction point found was unrelated to Svelte
+itself: the Wails v2.16.0 `svelte-ts` template pins Svelte 5.55.7 but its own
+`main.ts` still used the Svelte 4 instantiation API (see the Milestone 2
+update under ADR-001) — a template/version-skew bug, not a reason to
+reconsider the framework choice.
+
+### Decision
+
+Svelte + TypeScript, as specified. Not revisited unless a concrete problem
+surfaces.
 
 ---
 
