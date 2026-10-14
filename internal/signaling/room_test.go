@@ -163,6 +163,41 @@ func TestRelay_UnknownRecipient(t *testing.T) {
 	}
 }
 
+func TestSend_EvictsStuckPeer(t *testing.T) {
+	h := NewHub()
+	code, hostID, _ := h.CreateRoom()
+	_, stuckPeer, _, _ := h.JoinRoom(code)
+
+	// Fill the stuck peer's buffer without ever draining it -- simulates a
+	// transport that stopped reading from Send (dead/stuck connection).
+	for i := 0; i < cap(stuckPeer.Send); i++ {
+		stuckPeer.Send <- Envelope{Type: TypeRelay}
+	}
+
+	select {
+	case <-stuckPeer.Done():
+		t.Fatal("peer should not be evicted yet -- buffer isn't full until one more send")
+	default:
+	}
+
+	// This send pushes it over the edge: the buffer is now full, so the
+	// Hub must evict rather than silently drop.
+	if err := h.Relay(code, hostID, stuckPeer.ID, []byte(`{}`)); err != nil {
+		t.Fatalf("Relay: %v", err)
+	}
+
+	select {
+	case <-stuckPeer.Done():
+	default:
+		t.Fatal("expected stuck peer to be evicted (Done() closed)")
+	}
+
+	// And it must actually be gone from the room, not a phantom entry.
+	if err := h.Relay(code, hostID, stuckPeer.ID, []byte(`{}`)); !errors.Is(err, ErrRecipientUnknown) {
+		t.Fatalf("err = %v, want ErrRecipientUnknown (evicted peer should be removed from the room)", err)
+	}
+}
+
 func TestRelay_CrossRoomRejected(t *testing.T) {
 	h := NewHub()
 	codeA, hostA, _ := h.CreateRoom()
