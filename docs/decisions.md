@@ -166,10 +166,14 @@ Verified in `internal/signaling/room_test.go` (`TestLeave_HostClosesRoom`,
 
 `MaxPeersPerRoom = 8` in `internal/signaling/room.go`. Arbitrary, not derived
 from any load testing — just a reasonable bound for "host + a handful of
-viewers" that prevents unbounded memory growth from a buggy or malicious
-client hammering `JoinRoom`. Revisit once Phase D (multi-viewer video) picks
-a real mesh/SFU topology and room-size limit, which will likely replace this
-number with something load-tested.
+viewers" per room. **This caps peers within a room, not how many rooms a
+client can create** — `CreateRoom` itself is currently unbounded, so a
+malicious client hammering room creation is not actually stopped by this
+cap. That's a real gap, tracked under ADR-005 (no auth/abuse protection
+until Milestone 9) rather than patched piecemeal now. Revisit the peer cap
+itself once Phase D (multi-viewer video) picks a real mesh/SFU topology and
+room-size limit, which will likely replace this number with something
+load-tested.
 
 ---
 
@@ -288,6 +292,12 @@ and the alternatives before adding one).
   **this claim is contradicted by the pkg.go.dev version/date check above**
   and was treated as stale/wrong rather than trusted, since it conflicts
   with primary-source evidence (the actual release list).
+- WebFetch of `pkg.go.dev/github.com/gorilla/websocket` (checked during a
+  later review pass, not assumed from memory): confirms gorilla does **not**
+  support concurrent writes -- "Connections support one concurrent reader
+  and one concurrent writer. Applications are responsible for ensuring that
+  no more than one goroutine calls the write methods ... concurrently,"
+  with Close/WriteControl as the only exception.
 
 ### Alternatives considered
 
