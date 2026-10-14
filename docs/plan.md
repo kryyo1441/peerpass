@@ -6,18 +6,19 @@ tracks **current status and open questions**, not the full spec.
 
 ## Current milestone
 
-**Milestone 3 — minimal signaling flow, N-party room model.** Milestones 1
-(foundation) and 2 (Wails shell, verified Go↔frontend call) are done. Branch
-`feat/wails-shell` is up for review — not yet merged to `main`.
+**Milestone 3 — minimal signaling, N-party room model.** Implementation and
+verification are done; the work is on branch `feat/signaling`, **not yet
+merged to `main`** — awaiting review/approval. Milestone 4 (WebRTC) is next
+once that merge happens.
 
 ## Roadmap at a glance
 
 - **Phase A — Foundation**
   - M1: Repo, decisions.md, docs scaffold. ✅ Done (2026-10-14)
-  - M2: Wails shell + verified Go↔Svelte call. ✅ Done (2026-10-14, branch
-    `feat/wails-shell`, not yet merged)
+  - M2: Wails shell + verified Go↔Svelte call. ✅ Done (2026-10-14), merged to `main`
 - **Phase B — Connectivity**
-  - M3: Minimal signaling, N-party room model (see ADR-002)
+  - M3: Minimal signaling, N-party room model (see ADR-002). ✅ Done
+    (2026-10-14) on branch `feat/signaling` — **not yet merged to `main`**
   - M4: WebRTC peer connection + data channel test message (see ADR-003, ADR-004)
   - M5: Cross-network connectivity test, ICE/STUN/TURN behavior, recorded empirically
 - **Phase C — Core product (input sharing)**
@@ -55,5 +56,9 @@ tracks **current status and open questions**, not the full spec.
   Arch Linux now. This doesn't change M1/M2 scope — it's why platform-specific
   code (input injection in M7, capture in M10) must sit behind interfaces from
   the start rather than being written Linux-only and retrofitted.
-- **Wails v2 + webkit2gtk-4.1 on Arch:** see `docs/decisions.md` ADR-001 — to be
-  resolved empirically during M2, not assumed.
+- ~~**Wails v2 + webkit2gtk-4.1 on Arch:**~~ Resolved in M2 — see
+  `docs/decisions.md` ADR-001. `-tags webkit2_41` is required and verified
+  both ways (fails without it, works with it).
+- **Signaling hosting (relevant to M5):** see `docs/decisions.md` ADR-008 —
+  proposed/unverified, no free-tier host chosen or deployed yet. Only runs
+  locally so far.
