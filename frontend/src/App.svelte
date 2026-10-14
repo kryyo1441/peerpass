@@ -9,18 +9,24 @@
   let peers: string[] = []
   let status = 'Not connected.'
 
-  EventsOn('signal:peer-joined', (peerId: string) => {
-    peers = [...peers, peerId]
-    status = `Peer joined: ${peerId}`
+  // The server always sends the full current peer list (not a delta), so
+  // this just replaces -- no appending/filtering that could drift out of
+  // sync if a notification arrived out of order or was missed.
+  EventsOn('signal:peers', (updated: string[]) => {
+    peers = updated
+    status = `Peers in room: ${updated.length}`
   })
-  EventsOn('signal:peer-left', (peerId: string) => {
-    peers = peers.filter((p) => p !== peerId)
-    status = `Peer left: ${peerId}`
-  })
-  EventsOn('signal:room-closed', () => {
-    room = null
-    peers = []
+
+  // room-closed/disconnected only notify -- they don't tear down state
+  // themselves, since that happens on the Go read-loop goroutine. The
+  // frontend calling LeaveRoom() is what actually closes things out.
+  EventsOn('signal:room-closed', async () => {
     status = 'Room closed (host left).'
+    await leaveRoom(false)
+  })
+  EventsOn('signal:disconnected', async () => {
+    status = 'Lost connection to the signaling server.'
+    await leaveRoom(false)
   })
 
   async function createRoom(): Promise<void> {
@@ -35,7 +41,7 @@
 
   async function joinRoom(): Promise<void> {
     try {
-      room = await JoinRoom(signalAddr, joinCode)
+      room = await JoinRoom(signalAddr, joinCode.toUpperCase())
       peers = room.peers
       status = `Joined room: ${room.room}`
     } catch (err) {
@@ -43,11 +49,13 @@
     }
   }
 
-  async function leaveRoom(): Promise<void> {
+  // announceStatus is false when called from the room-closed/disconnected
+  // handlers above, which already set a more specific status message.
+  async function leaveRoom(announceStatus = true): Promise<void> {
     await LeaveRoom()
     room = null
     peers = []
-    status = 'Left room.'
+    if (announceStatus) status = 'Left room.'
   }
 </script>
 
@@ -80,7 +88,7 @@
           <li><code>{peer}</code>{peer === room.peerId ? ' (you)' : ''}</li>
         {/each}
       </ul>
-      <button on:click={leaveRoom}>Leave Room</button>
+      <button on:click={() => leaveRoom()}>Leave Room</button>
     </div>
   {/if}
 </main>
