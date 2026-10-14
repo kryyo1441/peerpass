@@ -6,10 +6,9 @@ tracks **current status and open questions**, not the full spec.
 
 ## Current milestone
 
-**Milestone 3 — minimal signaling, N-party room model.** Implementation and
-verification are done; the work is on branch `feat/signaling`, **not yet
-merged to `main`** — awaiting review/approval. Milestone 4 (WebRTC) is next
-once that merge happens.
+**Milestone 4 — WebRTC peer connection + data channel test message.**
+Explicitly paused at the project owner's request (2026-10-14) — not started.
+Milestones 1–3 are done and merged to `main`.
 
 ## Roadmap at a glance
 
@@ -18,8 +17,10 @@ once that merge happens.
   - M2: Wails shell + verified Go↔Svelte call. ✅ Done (2026-10-14), merged to `main`
 - **Phase B — Connectivity**
   - M3: Minimal signaling, N-party room model (see ADR-002). ✅ Done
-    (2026-10-14) on branch `feat/signaling` — **not yet merged to `main`**
-  - M4: WebRTC peer connection + data channel test message (see ADR-003, ADR-004)
+    (2026-10-14), merged to `main`
+  - M4: WebRTC peer connection + data channel test message (see ADR-003,
+    ADR-004). ⏸️ Paused, not started — see the STUN note below for a design
+    decision to carry into it when it starts.
   - M5: Cross-network connectivity test, ICE/STUN/TURN behavior, recorded empirically
 - **Phase C — Core product (input sharing)**
   - M6: Input-event protocol (validation, serialization, ordering, recovery)
@@ -62,3 +63,13 @@ once that merge happens.
 - **Signaling hosting (relevant to M5):** see `docs/decisions.md` ADR-008 —
   proposed/unverified, no free-tier host chosen or deployed yet. Only runs
   locally so far.
+- **STUN should be wired in from the start of M4, not added in M5
+  (discussed 2026-10-14):** a public STUN server belongs in the
+  `RTCConfiguration`/Pion equivalent at the moment the peer connection is
+  created — adding it later would mean changing code that didn't expect
+  ICE servers to exist, not just adding a config value. What M4 does *not*
+  need to determine is whether this machine's network actually needs STUN
+  to connect at all (likely moot on localhost/LAN) — that empirical
+  question, plus whether STUN alone is enough or a symmetric NAT forces
+  TURN, is M5's job, tested for real rather than assumed. TURN stays
+  entirely deferred to M5.
