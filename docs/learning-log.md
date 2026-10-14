@@ -119,12 +119,15 @@ plain blocking channel send. If it blocked, one peer whose write-pump
 goroutine died or is just slow to drain its channel would stall the *entire
 hub* — every other room's join/leave/relay calls would hang waiting for that
 one lock to free up, since they all go through the same mutex-guarded `Hub`.
-The non-blocking send means a stuck peer just silently misses a
-notification instead of freezing the whole server. The cost: that peer's
-`Send` channel has a bounded buffer (16), so a peer that's falling behind
-loses the oldest-style guarantee — acceptable for presence notifications,
-would need reconsideration if this channel ever carried something that must
-never be dropped.
+
+**Update:** the first version of this just silently dropped the message on
+a full buffer, which was fine for presence notifications but would have
+meant a dropped WebRTC SDP/ICE relay (from M4 on) vanishing with no signal
+to anyone. A later review pass caught this and added eviction instead: a
+full buffer now means the peer gets removed from its room (via `Peer.Done()`,
+which the transport layer watches to close the actual connection) rather
+than quietly losing messages forever. See `docs/decisions.md` ADR for the
+`send`/`removePeer` change.
 
 ### Why a separate `internal/signaling` package with no network imports
 
