@@ -35,6 +35,14 @@ tracks **current status and open questions**, not the full spec.
 - **Phase E — Quality**
   - M13: Latency/reliability/resource measurement, optimize after correctness
 
+## Not yet investigated
+
+- **Packaging/distribution (brief §4):** Windows executable/installer,
+  Linux packaging, macOS bundle/signing, and portable distribution have not
+  been investigated at all — only a dev-mode Linux build has been tested.
+  Not blocking for M2 (which only needed one verified Go↔frontend call), but
+  real scope for a later milestone, not something to assume is solved.
+
 ## Open questions
 
 - **Controller handoff exact behavior (relevant to M8):** The brief says to

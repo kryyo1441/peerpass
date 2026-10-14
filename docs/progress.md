@@ -27,12 +27,20 @@ actually verified — not a plan, not a status aspiration.
 - Added `Greet(name string) string` method verification: wrote `app_test.go`,
   ran `go test`/`gofmt`/`go vet` (all clean), ran frontend `svelte-check`
   (0 errors after the `main.ts` fix).
-- **Verified end-to-end**, not just compiled: ran `wails dev -tags
-  webkit2_41`, confirmed the native window opened on the live display, and
-  separately drove the browser-reachable dev server
-  (`http://localhost:34115`, read from the command's own log output) via
-  `claude-in-chrome` — typed "PeerPass", clicked Greet, confirmed
-  "Hello PeerPass, It's show time!" rendered.
+- **Verified end-to-end**, not just compiled: drove the browser-reachable dev
+  server (`http://localhost:34115`, read from the command's own log output,
+  started via `wails dev -tags webkit2_41`) with `claude-in-chrome` — typed
+  "PeerPass", clicked Greet, confirmed "Hello PeerPass, It's show time!"
+  rendered. Separately ran the packaged native binary directly and captured
+  a real screenshot of the live Hyprland display confirming the native
+  window renders the UI (not blank) — could not click Greet *inside* the
+  native window itself, since no input-simulation tool (`ydotool`/`wtype`)
+  was available in this environment; that click was only exercised through
+  the browser dev view, which shares the identical frontend bundle and Go
+  backend.
+- Confirmed the `-tags webkit2_41` requirement both ways, not just assumed:
+  `wails build` without the tag fails with a real `webkit2gtk-4.0 not found`
+  pkg-config error; with the tag it succeeds.
 - Ran `wails build -tags webkit2_41` for a production build; it succeeds.
 - Wrote `README.md` with setup instructions (including the required
   `-tags webkit2_41` flag), current capabilities, and the security/interim
