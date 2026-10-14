@@ -2,12 +2,14 @@ module peerpass
 
 go 1.25.0
 
-require github.com/wailsapp/wails/v2 v2.16.0
+require (
+	github.com/coder/websocket v1.8.15
+	github.com/wailsapp/wails/v2 v2.16.0
+)
 
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
 	github.com/bep/debounce v1.2.1 // indirect
-	github.com/coder/websocket v1.8.15 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
