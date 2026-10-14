@@ -5,6 +5,19 @@ actually verified — not a plan, not a status aspiration.
 
 ---
 
+## 2026-10-14 — feat/signaling merged to main; M4 paused
+
+- Merged `feat/signaling` (Milestone 3 + its review-pass fixes) into `main`,
+  deleted the branch. `main` now has M1 through M3.
+- Project owner asked to pause before Milestone 4 (WebRTC) and discuss STUN.
+- Decision recorded for when M4 resumes: wire a public STUN server into the
+  peer connection's ICE config from the start, not added later in M5 —
+  it's a config value at connection-creation time, not a retrofit. What M4
+  itself doesn't need to determine is whether this machine's network
+  actually needs STUN to connect (likely moot on localhost/LAN); that
+  empirical question, and whether STUN alone suffices or a symmetric NAT
+  forces TURN, stays M5's job. See `plan.md` and `handoff.md`.
+
 ## 2026-10-14 — Milestone 3 review pass: real bugs found and fixed
 
 A review of the just-completed M3 work (still on `feat/signaling`, not
