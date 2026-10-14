@@ -6,8 +6,10 @@ tracks **current status and open questions**, not the full spec.
 
 ## Current milestone
 
-**Milestone 4 — WebRTC peer connection + data channel test message.**
-Milestones 1–3 are done and merged to `main`.
+**Milestone 3 — minimal signaling, N-party room model.** Implementation and
+verification are done; the work is on branch `feat/signaling`, **not yet
+merged to `main`** — awaiting review/approval. Milestone 4 (WebRTC) is next
+once that merge happens.
 
 ## Roadmap at a glance
 
@@ -16,7 +18,7 @@ Milestones 1–3 are done and merged to `main`.
   - M2: Wails shell + verified Go↔Svelte call. ✅ Done (2026-10-14), merged to `main`
 - **Phase B — Connectivity**
   - M3: Minimal signaling, N-party room model (see ADR-002). ✅ Done
-    (2026-10-14), merged to `main`
+    (2026-10-14) on branch `feat/signaling` — **not yet merged to `main`**
   - M4: WebRTC peer connection + data channel test message (see ADR-003, ADR-004)
   - M5: Cross-network connectivity test, ICE/STUN/TURN behavior, recorded empirically
 - **Phase C — Core product (input sharing)**

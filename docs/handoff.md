@@ -5,13 +5,16 @@ duplicate content.
 
 ## Current state
 
-- **Milestone:** M3 (minimal signaling, N-party room model) is done and
-  merged to `main`. M4 (WebRTC peer connection + data channel test message)
-  is next — not started. See [`plan.md`](plan.md) for the full roadmap and
+- **Milestone:** M3 (minimal signaling, N-party room model) is done, but
+  **only on branch `feat/signaling` — not yet merged to `main`**. M4
+  (WebRTC peer connection + data channel test message) is next, after that
+  merge happens. See [`plan.md`](plan.md) for the full roadmap and
   [`progress.md`](progress.md) for the dated log of what's actually been
   done.
-- **Branch:** `feat/signaling` has the M3 work, not yet merged to `main` —
-  needs review/approval before merging.
+- **Branch:** `feat/signaling` has the M3 work, needs review/approval
+  before merging to `main`. **If you're starting a fresh session: branch
+  M4 off `feat/signaling`, not `main`, until this is merged** — `main`
+  does not have the signaling code yet.
 - **Stack decision:** Wails v2, Go backend, Svelte+TS frontend,
   `coder/websocket` for signaling transport (ADR-007). Full reasoning in
   [`decisions.md`](decisions.md).
