@@ -13,7 +13,10 @@ import (
 
 // MaxPeersPerRoom bounds room size. Arbitrary for now (host + a handful of
 // viewers); revisit once Phase D (multi-viewer video) picks a real topology
-// and room-size limit.
+// and room-size limit. Note: this caps peers per room, not the number of
+// rooms a client can create -- there is currently no limit on room
+// creation itself. Tracked as a known gap under ADR-005 (no auth/abuse
+// protection until Milestone 9), not something to fix piecemeal now.
 const MaxPeersPerRoom = 8
 
 var (
@@ -34,8 +37,8 @@ type RoomCode string
 // creation/join handshake.
 const (
 	TypeWelcome    = "welcome"     // server -> joining peer: room code, peer id, current peer list
-	TypePeerJoined = "peer-joined" // server -> existing peers: someone joined
-	TypePeerLeft   = "peer-left"   // server -> remaining peers: someone left
+	TypePeerJoined = "peer-joined" // server -> existing peers: someone joined; payload carries the full current peer list
+	TypePeerLeft   = "peer-left"   // server -> remaining peers: someone left; payload carries the full current peer list
 	TypeRoomClosed = "room-closed" // server -> remaining peers: host left, room is gone
 	TypeRelay      = "relay"       // client -> server -> recipient: opaque payload (SDP, ICE, etc. from M4 on)
 	TypeError      = "error"       // server -> peer: something went wrong
@@ -51,12 +54,42 @@ type Envelope struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
+// PeerListPayload is the Payload shape for TypePeerJoined/TypePeerLeft: the
+// full current peer list, not just a delta. Sending a snapshot rather than
+// "someone joined, add them to your list" means a client that missed an
+// earlier notification (or received one before its own JoinRoom call
+// returned) still ends up with the correct list, instead of silently
+// drifting out of sync.
+type PeerListPayload struct {
+	Peers []PeerID `json:"peers"`
+}
+
 // Peer is one connected client. Send is the outbound queue the transport
 // layer (internal/signalserver) drains and writes to the actual socket --
-// the Hub never does I/O itself.
+// the Hub never does I/O itself. done is closed by the Hub to tell the
+// transport layer to disconnect this peer (see evict).
 type Peer struct {
 	ID   PeerID
 	Send chan Envelope
+
+	done      chan struct{}
+	closeOnce sync.Once
+}
+
+func newPeer(id PeerID) *Peer {
+	return &Peer{ID: id, Send: make(chan Envelope, 16), done: make(chan struct{})}
+}
+
+// Done returns a channel that's closed when the Hub has evicted this peer
+// (its Send queue filled up because the transport stopped draining it).
+// The transport layer selects on this to know when to close the actual
+// connection.
+func (p *Peer) Done() <-chan struct{} {
+	return p.done
+}
+
+func (p *Peer) evict() {
+	p.closeOnce.Do(func() { close(p.done) })
 }
 
 // Room is a single N-party session: one host (the creator) plus any number
@@ -67,7 +100,7 @@ type Room struct {
 	Peers map[PeerID]*Peer
 }
 
-// PeerIDs returns the room's current peer IDs. Caller must hold the Hub's
+// peerIDs returns the room's current peer IDs. Caller must hold the Hub's
 // lock (only called from within Hub methods).
 func (r *Room) peerIDs() []PeerID {
 	ids := make([]PeerID, 0, len(r.Peers))
@@ -96,7 +129,7 @@ func (h *Hub) CreateRoom() (RoomCode, PeerID, *Peer) {
 
 	code := h.newRoomCode()
 	hostID := newPeerID()
-	peer := &Peer{ID: hostID, Send: make(chan Envelope, 16)}
+	peer := newPeer(hostID)
 
 	h.rooms[code] = &Room{
 		Code:  code,
@@ -122,19 +155,19 @@ func (h *Hub) JoinRoom(code RoomCode) (PeerID, *Peer, []PeerID, error) {
 	}
 
 	id := newPeerID()
-	peer := &Peer{ID: id, Send: make(chan Envelope, 16)}
+	peer := newPeer(id)
 	room.Peers[id] = peer
 
-	h.broadcast(room, Envelope{Type: TypePeerJoined, From: id}, id)
+	h.broadcastPeerListEvent(room, TypePeerJoined, id, id)
 
 	return id, peer, room.peerIDs(), nil
 }
 
 // Leave removes a peer from its room. If the departing peer was the host,
 // the room closes and every remaining peer is notified with TypeRoomClosed;
-// otherwise the remaining peers get a TypePeerLeft. This is the simplest
-// rule that fits the product: the host is the game machine, so no host
-// means there's nothing left to connect to.
+// otherwise the remaining peers get a TypePeerLeft with the updated peer
+// list. This is the simplest rule that fits the product: the host is the
+// game machine, so no host means there's nothing left to connect to.
 func (h *Hub) Leave(code RoomCode, id PeerID) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -147,19 +180,26 @@ func (h *Hub) Leave(code RoomCode, id PeerID) error {
 		return ErrPeerNotInRoom
 	}
 
+	h.removePeer(room, id)
+	return nil
+}
+
+// removePeer applies the leave rule described on Leave. Caller must hold
+// h.mu. Shared by Leave (explicit disconnect) and send (eviction of a
+// stuck peer) so both paths behave identically.
+func (h *Hub) removePeer(room *Room, id PeerID) {
 	if id == room.Host {
 		for peerID, peer := range room.Peers {
 			if peerID != id {
-				h.send(peer, Envelope{Type: TypeRoomClosed})
+				h.send(room, peer, Envelope{Type: TypeRoomClosed})
 			}
 		}
-		delete(h.rooms, code)
-		return nil
+		delete(h.rooms, room.Code)
+		return
 	}
 
 	delete(room.Peers, id)
-	h.broadcast(room, Envelope{Type: TypePeerLeft, From: id}, "")
-	return nil
+	h.broadcastPeerListEvent(room, TypePeerLeft, id, "")
 }
 
 // Relay forwards payload from one peer to another within the same room.
@@ -180,27 +220,38 @@ func (h *Hub) Relay(code RoomCode, from, to PeerID, payload json.RawMessage) err
 		return ErrRecipientUnknown
 	}
 
-	h.send(recipient, Envelope{Type: TypeRelay, From: from, To: to, Payload: payload})
+	h.send(room, recipient, Envelope{Type: TypeRelay, From: from, To: to, Payload: payload})
 	return nil
 }
 
-// broadcast sends env to every peer in room except skip (use "" to skip none).
-func (h *Hub) broadcast(room *Room, env Envelope, skip PeerID) {
+// broadcastPeerListEvent sends a peer-joined/peer-left envelope -- carrying
+// the room's current full peer list, not just the one that changed -- to
+// every peer in room except skip (use "" to skip none).
+func (h *Hub) broadcastPeerListEvent(room *Room, typ string, from, skip PeerID) {
+	payload, _ := json.Marshal(PeerListPayload{Peers: room.peerIDs()})
+	env := Envelope{Type: typ, From: from, Payload: payload}
 	for id, peer := range room.Peers {
 		if id == skip {
 			continue
 		}
-		h.send(peer, env)
+		h.send(room, peer, env)
 	}
 }
 
 // send is non-blocking: a slow/dead peer's full buffer must never stall the
-// hub for everyone else. The transport layer is responsible for noticing a
-// peer stopped draining its channel and disconnecting it.
-func (h *Hub) send(peer *Peer, env Envelope) {
+// hub for everyone else. If the peer's queue is already full, it means the
+// transport isn't draining it (a stuck or dead connection) -- rather than
+// silently dropping the message and leaving a phantom peer in the room
+// (which would matter a lot once this carries WebRTC SDP/ICE relays from
+// M4 on), the peer is evicted: removed from the room via the same rule as
+// an explicit Leave, and peer.evict() tells the transport layer to close
+// its actual connection.
+func (h *Hub) send(room *Room, peer *Peer, env Envelope) {
 	select {
 	case peer.Send <- env:
 	default:
+		peer.evict()
+		h.removePeer(room, peer.ID)
 	}
 }
 
