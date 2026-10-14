@@ -5,6 +5,56 @@ actually verified — not a plan, not a status aspiration.
 
 ---
 
+## 2026-10-14 — Milestone 3 complete: minimal signaling, N-party room model
+
+- Merged `feat/wails-shell` to `main` (Milestone 2), deleted the branch.
+- Checked `coder/websocket` vs `gorilla/websocket` before picking a
+  dependency: `go list -m -versions` + WebFetch of pkg.go.dev showed
+  coder/websocket actively released (v1.8.15, 2026-06-15) with native
+  concurrent-write support; gorilla tops out at v1.5.3 with an open
+  "no maintainer" issue. A WebSearch result claiming coder/websocket was
+  dormant since 2021 was checked against the primary-source version list
+  and found to be stale/wrong rather than trusted. Picked coder/websocket.
+  See `docs/decisions.md` ADR-007.
+- Built `internal/signaling` (Hub/Room/Peer model, no network imports,
+  mutex-guarded, server-assigned peer IDs and room codes via `crypto/rand`,
+  host-leave closes the room, `MaxPeersPerRoom = 8`). 10 unit tests, all
+  passing under `go test -race`.
+- Built `internal/signalserver` (WebSocket transport over the Hub, one
+  `/ws` endpoint, 16 KiB read limit for future WebRTC SDP/ICE payloads).
+  3-client integration test over real `httptest.NewServer` + real
+  `coder/websocket` clients — proves the design isn't hardcoded to two
+  peers, proves a targeted relay reaches only its recipient, proves a host
+  disconnect broadcasts room-closed. All passing under `go test -race`.
+- Found and fixed a real bug during testing: a departing peer's own
+  deferred cleanup was logging `ErrRoomNotFound`/`ErrPeerNotInRoom` as
+  errors when the host's leave had already removed the room first —
+  expected race, not a real failure; now only logs genuine errors.
+- Built `internal/signalclient` (what the Wails Go backend uses to connect
+  — the frontend never opens a socket itself) and `cmd/signal` (thin
+  standalone binary, binds to `127.0.0.1:8080` by default).
+- Wired `app.go`: `CreateRoom`/`JoinRoom`/`LeaveRoom` bound methods, no
+  generic "send anything" binding exposed. Signaling events translate to
+  Wails frontend events (`signal:peer-joined`/`peer-left`/`room-closed`)
+  via `runtime.EventsEmit`. `OnShutdown` now closes the connection cleanly.
+- Replaced the Greet demo UI with a minimal room create/join UI in
+  `App.svelte` showing a live peer list.
+- **Verified end-to-end with two real, separate OS processes**, not just
+  unit tests: ran the standalone signaling server, then two independent
+  `wails dev` instances (one from a `git worktree`, to avoid both writing
+  to the same build output directory) on different dev-server/Vite ports,
+  driven through two browser tabs via `claude-in-chrome`. Host created room
+  `3LZV84`; peer joined it; both sides' peer lists updated live via the
+  `signal:peer-joined` event; peer left; host's list correctly dropped back
+  to one entry via `signal:peer-left`. Screenshotted at each step.
+- Updated `README.md`'s security section from "nothing to expose yet" to
+  the actual interim trust model (ADR-005), added signaling-server setup
+  instructions and `-race` to the testing section.
+- Updated `docs/architecture.md`, `docs/learning-log.md` (signaling
+  rationale, mutex-vs-goroutine with a Python GIL comparison, why
+  non-blocking sends matter, why the room logic has no network imports),
+  and `docs/decisions.md` (ADR-007, ADR-008, ADR-002/ADR-005 updates).
+
 ## 2026-10-14 — Milestone 2 complete: Wails shell with verified Go↔frontend call
 
 - Installed Wails v2.16.0 CLI (`go install .../wails/v2/cmd/wails@latest`).
@@ -67,7 +117,8 @@ actually verified — not a plan, not a status aspiration.
 
 ## Next
 
-Milestone 3 — minimal signaling flow, N-party room model (room code, peer
-list, host identity, join/leave) even though only two peers will connect
-initially. See `docs/plan.md` open questions before M8 (controller-handoff
-behavior needs clarifying with the project owner first, but that's M8, not M3).
+Milestone 4 — establish a WebRTC peer connection and exchange a test message
+over a data channel, using the existing signaling relay (`Hub.Relay` /
+`signalclient.Relay`) to carry SDP offers/answers and ICE candidates. See
+`docs/plan.md` open questions before M8 (controller-handoff behavior needs
+clarifying with the project owner first, but that's M8, not M4).
