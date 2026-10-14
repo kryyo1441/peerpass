@@ -5,18 +5,20 @@ duplicate content.
 
 ## Current state
 
-- **Milestone:** M2 (Wails shell + verified Go↔frontend call) is done. M3
-  (signaling, N-party room model) is next — not started. See
-  [`plan.md`](plan.md) for the full roadmap and [`progress.md`](progress.md)
-  for the dated log of what's actually been done.
-- **Branch:** `feat/wails-shell` has the working shell, not yet merged to
-  `main` — needs review/approval before merging.
-- **Stack decision:** Wails v2 (not v3 beta), Go backend, Svelte+TS frontend.
-  Full reasoning in [`decisions.md`](decisions.md) ADR-001, including two real
-  upstream template bugs found and fixed (vite version pin, Svelte 5 `mount()`
-  API).
+- **Milestone:** M3 (minimal signaling, N-party room model) is done and
+  merged to `main`. M4 (WebRTC peer connection + data channel test message)
+  is next — not started. See [`plan.md`](plan.md) for the full roadmap and
+  [`progress.md`](progress.md) for the dated log of what's actually been
+  done.
+- **Branch:** `feat/signaling` has the M3 work, not yet merged to `main` —
+  needs review/approval before merging.
+- **Stack decision:** Wails v2, Go backend, Svelte+TS frontend,
+  `coder/websocket` for signaling transport (ADR-007). Full reasoning in
+  [`decisions.md`](decisions.md).
 - **Dev machine:** Arch Linux, webkit2gtk-4.1 — confirmed working, but
   **every `wails` command needs `-tags webkit2_41`**. See `README.md`.
+- **Security:** no auth until M9 — see `README.md`'s security section and
+  ADR-005. Signaling server binds to `127.0.0.1` by default.
 
 ## Where things live
 
@@ -29,12 +31,15 @@ duplicate content.
 
 ## What needs to happen next
 
-1. Review `feat/wails-shell` (commits, diff, docs) and decide whether to
-   merge to `main`.
-2. Start Milestone 3: minimal signaling flow. Model room state, peer list,
-   host identity, and join/leave as N-party from the start (ADR-002), even
-   though only two peers connect initially. Explain to the project owner why
-   signaling is needed for a P2P app before writing it.
+1. Review `feat/signaling` (commits, diff, docs) and decide whether to merge
+   to `main`.
+2. Start Milestone 4: establish a WebRTC peer connection and exchange a test
+   message over a data channel. The existing signaling relay
+   (`Hub.Relay`/`signalclient.Relay`, already carrying opaque
+   `json.RawMessage` payloads) is what will carry SDP offers/answers and ICE
+   candidates — this is designed in already (ADR-003), not something to
+   retrofit. Evaluate Pion WebRTC for real before committing (ADR-004 is
+   currently unverified placeholder only).
 
 ## Open questions (don't lose these)
 
@@ -47,3 +52,6 @@ duplicate content.
   Linux now. Doesn't change current scope — it's why platform-specific code
   (input injection in M7, capture in M10) must sit behind interfaces from the
   start. No Windows/macOS build has been attempted yet.
+- **Signaling hosting (relevant to M5):** ADR-008 is a proposed/unverified
+  placeholder. No free-tier host has been chosen or deployed. Only runs
+  locally so far.
