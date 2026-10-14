@@ -1,0 +1,22 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/build/bin/
+
+# Wails frontend build output
+/frontend/dist/
+/frontend/node_modules/
+/frontend/.vite/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Editor
+.vscode/
+.idea/
+*.swp
