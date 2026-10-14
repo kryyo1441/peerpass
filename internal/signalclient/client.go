@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"sync/atomic"
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
@@ -34,6 +35,7 @@ type EventHandler func(signaling.Envelope)
 type Client struct {
 	conn   *websocket.Conn
 	cancel context.CancelFunc
+	closed atomic.Bool // set by Close(), so readLoop can tell "we closed this on purpose" from "it just died"
 	PeerID signaling.PeerID
 	Room   signaling.RoomCode
 	IsHost bool
@@ -44,10 +46,16 @@ type Client struct {
 // returned Client's read loop runs until ctx is cancelled or the connection
 // drops; every subsequent server message is passed to onEvent.
 //
+// onDisconnect is called exactly once if the connection drops for any
+// reason other than the caller's own Close() -- e.g. the signaling server
+// crashed or the network dropped. It is never called after an explicit
+// Close(), so callers can safely react to it by tearing down UI state
+// without worrying about a spurious call racing their own cleanup.
+//
 // ctx should be tied to something that gets cancelled on explicit
 // leave/disconnect and on application shutdown -- this client does not
 // outlive its caller's lifecycle management.
-func Connect(ctx context.Context, addr string, room signaling.RoomCode, onEvent EventHandler) (*Client, Welcome, error) {
+func Connect(ctx context.Context, addr string, room signaling.RoomCode, onEvent EventHandler, onDisconnect func()) (*Client, Welcome, error) {
 	u := url.URL{Scheme: "ws", Host: addr, Path: "/ws"}
 	if room != "" {
 		q := u.Query()
@@ -79,16 +87,19 @@ func Connect(ctx context.Context, addr string, room signaling.RoomCode, onEvent 
 	runCtx, cancel := context.WithCancel(ctx)
 	c := &Client{conn: conn, cancel: cancel, PeerID: welcome.PeerID, Room: welcome.Room, IsHost: welcome.Host}
 
-	go c.readLoop(runCtx, onEvent)
+	go c.readLoop(runCtx, onEvent, onDisconnect)
 
 	return c, welcome, nil
 }
 
-func (c *Client) readLoop(ctx context.Context, onEvent EventHandler) {
+func (c *Client) readLoop(ctx context.Context, onEvent EventHandler, onDisconnect func()) {
 	for {
 		var env signaling.Envelope
 		if err := wsjson.Read(ctx, c.conn, &env); err != nil {
-			return // connection closed or ctx cancelled -- caller's onEvent won't fire again
+			if !c.closed.Load() && onDisconnect != nil {
+				onDisconnect()
+			}
+			return
 		}
 		if onEvent != nil {
 			onEvent(env)
@@ -103,8 +114,11 @@ func (c *Client) Relay(ctx context.Context, to signaling.PeerID, payload []byte)
 	return wsjson.Write(ctx, c.conn, env)
 }
 
-// Close ends the connection and stops the read loop.
+// Close ends the connection and stops the read loop. Marks closed first so
+// readLoop's resulting read error is recognized as an intentional close,
+// not reported via onDisconnect.
 func (c *Client) Close() {
+	c.closed.Store(true)
 	c.cancel()
 	c.conn.Close(websocket.StatusNormalClosure, "")
 }
