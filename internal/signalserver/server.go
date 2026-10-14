@@ -73,6 +73,23 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		peerID, peer, peers = id, p, roomPeers
 	}
 
+	// Registered immediately once the peer exists in the Hub -- before the
+	// welcome write, which can itself fail. Otherwise a failed write would
+	// return early and leave a phantom peer in the room forever (visible to
+	// everyone else, never sending peer-left, and if it was the host, the
+	// room would never close).
+	defer func() {
+		// ErrRoomNotFound/ErrPeerNotInRoom here just mean someone else's
+		// cleanup (e.g. the host leaving, or eviction) already removed this
+		// peer or the whole room -- not a real error, so only log anything
+		// else.
+		if err := s.hub.Leave(code, peerID); err != nil &&
+			!errors.Is(err, signaling.ErrRoomNotFound) &&
+			!errors.Is(err, signaling.ErrPeerNotInRoom) {
+			log.Printf("signalserver: leave cleanup for %s in %s: %v", peerID, code, err)
+		}
+	}()
+
 	welcome := signaling.Envelope{Type: signaling.TypeWelcome, To: peerID}
 	welcomePayload, _ := json.Marshal(welcomePayload{Room: code, PeerID: peerID, Peers: peers, Host: isHost})
 	welcome.Payload = welcomePayload
@@ -81,20 +98,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer func() {
-		// ErrRoomNotFound/ErrPeerNotInRoom here just mean someone else's
-		// cleanup (e.g. the host leaving) already removed this peer or the
-		// whole room -- not a real error, so only log anything else.
-		if err := s.hub.Leave(code, peerID); err != nil &&
-			!errors.Is(err, signaling.ErrRoomNotFound) &&
-			!errors.Is(err, signaling.ErrPeerNotInRoom) {
-			log.Printf("signalserver: leave cleanup for %s in %s: %v", peerID, code, err)
-		}
-	}()
-
+	// writePump starts its own goroutine and returns immediately; the read
+	// loop below is what actually blocks until the connection closes
+	// (client disconnect, eviction via peer.Done(), or ctx cancellation).
 	s.writePump(ctx, conn, peer)
-	// writePump returns once the read loop (launched below) detects the
-	// connection died and cancels its own context -- see run().
 	_ = s.run(ctx, conn, code, peerID, peer)
 }
 
@@ -138,11 +145,17 @@ func (s *Server) run(ctx context.Context, conn *websocket.Conn, code signaling.R
 
 // writePump drains peer.Send and writes each envelope to the socket, in its
 // own goroutine so a slow reader never blocks the Hub (see signaling.send).
+// It also watches peer.Done(): the Hub closes that when it evicts this peer
+// for not draining Send fast enough, which is this transport's signal to
+// actually close the connection instead of leaving it dangling.
 func (s *Server) writePump(ctx context.Context, conn *websocket.Conn, peer *signaling.Peer) {
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
+				return
+			case <-peer.Done():
+				conn.Close(websocket.StatusPolicyViolation, "evicted: not draining messages fast enough")
 				return
 			case env, ok := <-peer.Send:
 				if !ok {
