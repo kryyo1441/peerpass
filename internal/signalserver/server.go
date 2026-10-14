@@ -82,7 +82,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	defer func() {
-		if err := s.hub.Leave(code, peerID); err != nil {
+		// ErrRoomNotFound/ErrPeerNotInRoom here just mean someone else's
+		// cleanup (e.g. the host leaving) already removed this peer or the
+		// whole room -- not a real error, so only log anything else.
+		if err := s.hub.Leave(code, peerID); err != nil &&
+			!errors.Is(err, signaling.ErrRoomNotFound) &&
+			!errors.Is(err, signaling.ErrPeerNotInRoom) {
 			log.Printf("signalserver: leave cleanup for %s in %s: %v", peerID, code, err)
 		}
 	}()
