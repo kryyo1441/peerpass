@@ -22,10 +22,13 @@ done and merged to `main`.
     (2026-10-14), merged to `main`
   - M4: WebRTC peer connection + data channel test message (see ADR-003,
     ADR-004). 🚧 In progress (resumed 2026-10-15) — Pion verified, peer
-    connection wrapper (`internal/peerconn`) done. Signaling glue, Wails
-    integration, and the data-channel test message not started. See the
-    STUN note below for a design decision already folded into this
-    milestone.
+    connection wrapper (`internal/peerconn`), and signaling glue
+    (`internal/webrtcsignal`, offer/answer/ICE over the existing relay)
+    done, with an end-to-end test (two real signaling clients, real
+    offer/answer, data channel message round-trip) proving it works.
+    Wails integration and surfacing the test message to the frontend not
+    started. See the STUN note below for a design decision already folded
+    into this milestone.
   - M5: Cross-network connectivity test, ICE/STUN/TURN behavior, recorded empirically
 - **Phase C — Core product (input sharing)**
   - M6: Input-event protocol (validation, serialization, ordering, recovery)

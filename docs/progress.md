@@ -207,12 +207,35 @@ server crash:
   connection's config and that the data channel gets the right label.
 - `go build ./...` and `go test ./internal/peerconn/...` both pass.
 
+## 2026-10-15 — Milestone 4 part 3 (signaling glue) done
+
+- Branched from part 2's work (still on `feature/m4-webrtc`).
+- New `internal/webrtcsignal` package: `Manager` owns one
+  `peerconn`-built peer connection per remote peer (matching the N-party
+  room model, ADR-002, even though M4 only exercises two) and moves
+  offer/answer/ICE-candidate messages between them and the signaling
+  relay. `Message` is the JSON shape carried as the relay's opaque
+  payload. `Offer(ctx, peer)` creates a connection + data channel and
+  sends the SDP offer; `HandleRelay(ctx, env)` dispatches an incoming
+  envelope to offer/answer/candidate handling, creating the connection on
+  first offer. Trickled ICE candidates are relayed automatically via
+  `OnICECandidate`.
+- Test (`webrtcsignal_test.go`) is a real end-to-end check, not a mock:
+  spins up an actual `signalserver`, connects two real
+  `signalclient.Client`s to it, has one `Offer` the other, and asserts
+  the resulting data channels actually open and a message sent on one
+  side arrives on the other. This is the same-machine, two-process test
+  discussed earlier for M4, now automated -- and it substantially covers
+  what part 5's self-test was meant to prove, so part 5 should mostly be
+  App-level wiring + surfacing the test message to the frontend, not
+  re-proving the handshake.
+- `go build ./...`, `go vet ./...`, and `go test ./... -race` all pass.
+
 ## Next
 
-Milestone 4, part 3 — signaling glue: define the offer/answer/ICE-candidate
-message shapes and route them through the existing
-`signalclient.Relay`/`Hub.Relay` opaque-payload channel, deciding who
-initiates (the room host, when a peer joins) and wiring incoming relay
-messages to the right `peerconn.PeerConnection`. See `docs/plan.md` open
-questions before M8 (controller-handoff behavior needs clarifying with the
-project owner first, but that's M8, not M4).
+Milestone 4, part 4 — Wails integration: wire `webrtcsignal.Manager` into
+`App` (`app.go`), triggering `Offer` when the host sees a new peer join and
+routing incoming `TypeRelay` events (currently ignored by `handleEvent`) to
+`Manager.HandleRelay`. See `docs/plan.md` open questions before M8
+(controller-handoff behavior needs clarifying with the project owner first,
+but that's M8, not M4).
