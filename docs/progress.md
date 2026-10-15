@@ -231,11 +231,43 @@ server crash:
   re-proving the handshake.
 - `go build ./...`, `go vet ./...`, and `go test ./... -race` all pass.
 
+## 2026-10-15 — Milestone 4 part 4 (Wails integration) done, plus a real bug fix
+
+- `App` now creates a `webrtcsignal.Manager` alongside the signaling
+  client on `CreateRoom`/`JoinRoom`, and closes it in `LeaveRoom` (before
+  the signaling client, so nothing races to use an already-gone relay).
+- `handleEvent`: `TypePeerJoined`'s `From` field is the joining peer's own
+  id (the server stamps it in `Hub.JoinRoom`/`broadcastPeerListEvent`) --
+  used directly, no diffing needed. If this client is host, it calls
+  `Manager.Offer` for that peer. `TypeRelay` envelopes now route to
+  `Manager.HandleRelay` (previously silently ignored). Both run in a
+  goroutine off the signalclient read loop and log via
+  `runtime.LogErrorf` on failure rather than blocking it.
+- New `webrtc:peer-connected` Wails event (payload: peer id string),
+  emitted once a given peer's data channel opens.
+- **Bug found and fixed while wiring this up:** `go test ./... -race`
+  started failing `webrtcsignal`'s end-to-end test intermittently (~1 in
+  6 runs) once relay handling ran through goroutines the way `app.go`
+  now drives it -- `add ICE candidate: remote description is not set`.
+  Root cause: trickled ICE candidates and the offer/answer SDP travel as
+  separate relay messages with no ordering guarantee, so a candidate can
+  legitimately arrive before the SDP that was logically sent first.
+  Fixed by queueing per-peer candidates in `Manager` until
+  `SetRemoteDescription` succeeds, then flushing. Confirmed with 30
+  consecutive `-race` runs, no failures. This was a real correctness gap
+  in part 3's glue, not an app.go issue -- caught by the race detector
+  because app.go's goroutines interleave the read loop differently than
+  the single-goroutine test harness did.
+- `go build ./...`, `go vet ./...`, `go test ./... -race` all pass.
+
 ## Next
 
-Milestone 4, part 4 — Wails integration: wire `webrtcsignal.Manager` into
-`App` (`app.go`), triggering `Offer` when the host sees a new peer join and
-routing incoming `TypeRelay` events (currently ignored by `handleEvent`) to
-`Manager.HandleRelay`. See `docs/plan.md` open questions before M8
-(controller-handoff behavior needs clarifying with the project owner first,
-but that's M8, not M4).
+Milestone 4, part 5 (trimmed) — surface an actual data channel test
+message to the frontend. The handshake itself is already proven by
+part 3's end-to-end test; what's left is purely product-visible: once
+`webrtc:peer-connected` fires, send a hardcoded message over the data
+channel and emit whatever arrives on the other side as a new Wails event,
+so the frontend (and a human, running two instances) can see M4's goal
+actually working, not just its plumbing. See `docs/plan.md` open questions
+before M8 (controller-handoff behavior needs clarifying with the project
+owner first, but that's M8, not M4).
