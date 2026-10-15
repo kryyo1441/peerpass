@@ -6,19 +6,22 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/pion/webrtc/v4"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"peerpass/internal/signalclient"
 	"peerpass/internal/signaling"
+	"peerpass/internal/webrtcsignal"
 )
 
 // Wails event names the frontend can subscribe to via runtime.EventsOn.
 // The frontend never opens its own signaling connection -- it only reacts
 // to these events and calls the bound methods below.
 const (
-	EventPeers        = "signal:peers"        // payload: []string, the full current peer list
-	EventRoomClosed   = "signal:room-closed"  // host left; frontend should call LeaveRoom()
-	EventDisconnected = "signal:disconnected" // connection to the signaling server itself died; frontend should call LeaveRoom()
+	EventPeers         = "signal:peers"          // payload: []string, the full current peer list
+	EventRoomClosed    = "signal:room-closed"    // host left; frontend should call LeaveRoom()
+	EventDisconnected  = "signal:disconnected"   // connection to the signaling server itself died; frontend should call LeaveRoom()
+	EventPeerConnected = "webrtc:peer-connected" // payload: peer id string; that peer's data channel is open
 )
 
 // RoomInfo is the plain-JSON shape returned to the frontend from
@@ -45,6 +48,7 @@ type App struct {
 	mu         sync.Mutex
 	cancelConn context.CancelFunc
 	client     *signalclient.Client
+	manager    *webrtcsignal.Manager
 }
 
 // NewApp creates a new App application struct
@@ -91,9 +95,12 @@ func (a *App) connect(addr string, room string) (RoomInfo, error) {
 		return RoomInfo{}, err
 	}
 
+	manager := webrtcsignal.NewManager(client, a.handleDataChannelOpen)
+
 	a.mu.Lock()
 	a.cancelConn = cancel
 	a.client = client
+	a.manager = manager
 	a.mu.Unlock()
 
 	peers := make([]string, len(welcome.Peers))
@@ -112,10 +119,16 @@ func (a *App) connect(addr string, room string) (RoomInfo, error) {
 // when there is no active connection.
 func (a *App) LeaveRoom() {
 	a.mu.Lock()
-	client, cancel := a.client, a.cancelConn
-	a.client, a.cancelConn = nil, nil
+	client, cancel, manager := a.client, a.cancelConn, a.manager
+	a.client, a.cancelConn, a.manager = nil, nil, nil
 	a.mu.Unlock()
 
+	// Close the peer connections before the signaling client -- Manager
+	// doesn't need the relay once it's told to shut down, but closing in
+	// this order means nothing races to use a relay that's already gone.
+	if manager != nil {
+		manager.Close()
+	}
 	if client != nil {
 		client.Close()
 	}
@@ -139,9 +152,45 @@ func (a *App) handleEvent(env signaling.Envelope) {
 			peers[i] = string(p)
 		}
 		runtime.EventsEmit(a.ctx, EventPeers, peers)
+
+		// For TypePeerJoined, From is the peer that just joined (the server
+		// stamps it -- see Hub.JoinRoom/broadcastPeerListEvent). The host
+		// initiates the WebRTC connection to every new peer; a non-host
+		// peer just waits for an incoming offer via TypeRelay below.
+		if env.Type == signaling.TypePeerJoined && env.From != "" {
+			a.mu.Lock()
+			client, manager := a.client, a.manager
+			a.mu.Unlock()
+			if client != nil && client.IsHost && manager != nil {
+				go func() {
+					if err := manager.Offer(a.ctx, env.From); err != nil {
+						runtime.LogErrorf(a.ctx, "webrtc: offer to %s: %v", env.From, err)
+					}
+				}()
+			}
+		}
 	case signaling.TypeRoomClosed:
 		runtime.EventsEmit(a.ctx, EventRoomClosed)
+	case signaling.TypeRelay:
+		a.mu.Lock()
+		manager := a.manager
+		a.mu.Unlock()
+		if manager != nil {
+			go func() {
+				if err := manager.HandleRelay(a.ctx, env); err != nil {
+					runtime.LogErrorf(a.ctx, "webrtc: handle relay from %s: %v", env.From, err)
+				}
+			}()
+		}
 	}
+}
+
+// handleDataChannelOpen is called by Manager once per remote peer when its
+// data channel opens. Runs on whatever goroutine Pion invokes the Manager's
+// callback from, not the UI goroutine -- runtime.EventsEmit is safe from
+// any goroutine.
+func (a *App) handleDataChannelOpen(peer signaling.PeerID, _ *webrtc.DataChannel) {
+	runtime.EventsEmit(a.ctx, EventPeerConnected, string(peer))
 }
 
 // handleDisconnect is called by signalclient when the connection drops for
