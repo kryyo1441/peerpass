@@ -260,14 +260,37 @@ server crash:
   the single-goroutine test harness did.
 - `go build ./...`, `go vet ./...`, `go test ./... -race` all pass.
 
+## 2026-10-15 — Milestone 4 part 5 done; Milestone 4 complete
+
+- `handleDataChannelOpen` (`app.go`) now sends a hardcoded
+  `"hello from <peerId>"` text message once a peer's data channel opens,
+  and forwards whatever message arrives on that channel as a new
+  `webrtc:test-message` Wails event (`TestMessage{Peer, Message}`).
+  Guards against the room having been left between the channel opening
+  and the send (`a.client` nil check).
+- This is the actual product-visible goal of M4: not just that a data
+  channel opens, but that application data crosses it and reaches the
+  other side. The handshake correctness itself was already proven by
+  part 3's end-to-end test (two real signaling clients, real
+  offer/answer, message round-trip) -- this step is the thin, already-
+  tested-underneath layer that makes it visible to the app.
+- `go build ./...`, `go vet ./...`, `go test ./... -race` all pass.
+- **Milestone 4 is complete.** All 5 parts done: Pion verified (ADR-004),
+  `internal/peerconn`, `internal/webrtcsignal`, Wails integration, and
+  the test message. Everything is on `feature/m4-webrtc`, not yet merged
+  to `main` -- merge is a separate decision for the project owner.
+- **Known gap, deliberately out of scope:** the Svelte frontend doesn't
+  subscribe to or display `webrtc:peer-connected`/`webrtc:test-message`
+  at all. M4's brief was "establish a WebRTC peer connection and exchange
+  a test message over a data channel" -- read as Go-side scope, same as
+  M2 only needing one verified Go↔frontend call. Surfacing this in the UI
+  is a product decision, not assumed here.
+
 ## Next
 
-Milestone 4, part 5 (trimmed) — surface an actual data channel test
-message to the frontend. The handshake itself is already proven by
-part 3's end-to-end test; what's left is purely product-visible: once
-`webrtc:peer-connected` fires, send a hardcoded message over the data
-channel and emit whatever arrives on the other side as a new Wails event,
-so the frontend (and a human, running two instances) can see M4's goal
-actually working, not just its plumbing. See `docs/plan.md` open questions
-before M8 (controller-handoff behavior needs clarifying with the project
-owner first, but that's M8, not M4).
+Project owner to decide: merge `feature/m4-webrtc` to `main`, and whether
+the frontend should display WebRTC connection state / the test message
+before moving on, or whether M5 (cross-network connectivity test,
+ICE/STUN/TURN behavior, recorded empirically) starts first. See
+`docs/plan.md` open questions before M8 (controller-handoff behavior needs
+clarifying with the project owner first, but that's M8, not M4).

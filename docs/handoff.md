@@ -6,15 +6,19 @@ duplicate content.
 ## Current state
 
 - **Milestone:** M1–M3 are done and merged to `main`. **M4 (WebRTC peer
-  connection + data channel test message) is explicitly paused at the
-  project owner's request (2026-10-14) — not started.** See
+  connection + data channel test message) is done (2026-10-15)**, on
+  branch `feature/m4-webrtc`, not yet merged to `main`. See
   [`plan.md`](plan.md) for the full roadmap and [`progress.md`](progress.md)
   for the dated log of what's actually been done.
-- **Branch:** none in progress. `main` has everything through M3, including
-  a review pass that fixed several real bugs found after the initial M3
-  "done" (leave-cleanup ordering, stuck-peer eviction, disconnect
-  detection, a missing mutex, peer-list snapshot events) — see
-  `decisions.md` and `progress.md` for what was actually wrong and fixed.
+- **Branch:** `feature/m4-webrtc`, done but unmerged -- `main` still only
+  has through M3. `main` includes a review pass that fixed several real
+  bugs found after the initial M3 "done" (leave-cleanup ordering,
+  stuck-peer eviction, disconnect detection, a missing mutex, peer-list
+  snapshot events) — see `decisions.md` and `progress.md` for what was
+  actually wrong and fixed. M4's own build caught and fixed one more:
+  trickled ICE candidates could arrive before the SDP that logically
+  preceded them (separate relay messages, no ordering guarantee) —
+  `internal/webrtcsignal` now queues and flushes them.
 - **Stack decision:** Wails v2, Go backend, Svelte+TS frontend,
   `coder/websocket` for signaling transport (ADR-007). Full reasoning in
   [`decisions.md`](decisions.md).
@@ -34,23 +38,24 @@ duplicate content.
 
 ## What needs to happen next
 
-When M4 resumes: establish a WebRTC peer connection and exchange a test
-message over a data channel. The existing signaling relay
-(`Hub.Relay`/`signalclient.Relay`, already carrying opaque
-`json.RawMessage` payloads) is what will carry SDP offers/answers and ICE
-candidates — this is designed in already (ADR-003), not something to
-retrofit. Evaluate Pion WebRTC for real before committing (ADR-004 is
-currently unverified placeholder only).
+M4 is done — see `progress.md`'s 2026-10-15 entries for the full build log
+across its 5 parts (Pion verification, `internal/peerconn`,
+`internal/webrtcsignal`, Wails integration, the test message). Two
+decisions for the project owner before moving on:
 
-**Carry this decision into M4 when it starts (discussed 2026-10-14, not
-yet implemented):** wire a public STUN server into the peer connection's
-ICE config from the beginning, rather than adding it in M5. It's a config
-value at connection-creation time, not something to retrofit. M4 does not
-need to determine whether this network actually needs STUN to connect
-(likely moot on localhost/LAN) — just that ICE candidate gathering is
-wired up and exercised. Whether STUN is sufficient or a symmetric NAT
-forces TURN is M5's empirical question, not M4's. See `plan.md`'s open
-questions for the fuller note.
+1. **Merge `feature/m4-webrtc` to `main`?** Not done automatically.
+2. **Frontend display:** the Svelte UI doesn't show WebRTC connection
+   state or the test message at all yet — M4 was read as Go-side scope
+   (same precedent as M2). Worth doing before M5, or fine to leave for
+   later?
+
+After that, M5 is cross-network connectivity: deploy the signaling server
+somewhere reachable (ADR-008 is still an unverified placeholder — no host
+chosen), then test for real whether the STUN config from M4 is sufficient
+across real NATs, or whether a symmetric NAT forces TURN. That's an
+empirical question for real devices on real networks, not something to
+simulate locally (see the Docker-vs-real-devices discussion from
+2026-10-15, not written up elsewhere since it didn't change any decision).
 
 ## Open questions (don't lose these)
 

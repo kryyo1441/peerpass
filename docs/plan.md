@@ -7,10 +7,8 @@ tracks **current status and open questions**, not the full spec.
 ## Current milestone
 
 **Milestone 4 — WebRTC peer connection + data channel test message.**
-Resumed 2026-10-15. Part 1 (verify Pion WebRTC, ADR-004) done — see
-`decisions.md`. Parts 2-5 (peer connection wrapper, signaling glue, Wails
-integration, data channel test + self-test) not started. Milestones 1–3 are
-done and merged to `main`.
+Done (2026-10-15), on branch `feature/m4-webrtc`, not yet merged to `main`.
+Milestones 1–3 are done and merged to `main`.
 
 ## Roadmap at a glance
 
@@ -21,14 +19,14 @@ done and merged to `main`.
   - M3: Minimal signaling, N-party room model (see ADR-002). ✅ Done
     (2026-10-14), merged to `main`
   - M4: WebRTC peer connection + data channel test message (see ADR-003,
-    ADR-004). 🚧 In progress (resumed 2026-10-15) — Pion verified, peer
-    connection wrapper (`internal/peerconn`), signaling glue
+    ADR-004). ✅ Done (2026-10-15), on `feature/m4-webrtc`. Pion verified,
+    peer connection wrapper (`internal/peerconn`), signaling glue
     (`internal/webrtcsignal`), and Wails integration (`app.go`) all done.
-    The host now offers WebRTC to each peer as they join, relay messages
-    route to the Manager, and the frontend gets a `webrtc:peer-connected`
-    event per peer. Only surfacing an actual test message over the data
-    channel to the frontend is left. See the STUN note below for a design
-    decision already folded into this milestone.
+    The host offers WebRTC to each peer as they join; once a data channel
+    opens, a hardcoded test message is sent and whatever comes back is
+    surfaced as `webrtc:test-message`. The Svelte frontend doesn't display
+    any of this yet (`signal:*` UI only) — that's frontend work, not
+    covered by this milestone's Go-side scope.
   - M5: Cross-network connectivity test, ICE/STUN/TURN behavior, recorded empirically
 - **Phase C — Core product (input sharing)**
   - M6: Input-event protocol (validation, serialization, ordering, recovery)
