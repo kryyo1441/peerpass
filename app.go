@@ -22,7 +22,16 @@ const (
 	EventRoomClosed    = "signal:room-closed"    // host left; frontend should call LeaveRoom()
 	EventDisconnected  = "signal:disconnected"   // connection to the signaling server itself died; frontend should call LeaveRoom()
 	EventPeerConnected = "webrtc:peer-connected" // payload: peer id string; that peer's data channel is open
+	EventTestMessage   = "webrtc:test-message"   // payload: TestMessage; M4's data-channel test message was received
 )
+
+// TestMessage is the M4 "data channel test message" surfaced to the
+// frontend -- proof the data channel actually carries application data,
+// not just that it opened.
+type TestMessage struct {
+	Peer    string `json:"peer"`
+	Message string `json:"message"`
+}
 
 // RoomInfo is the plain-JSON shape returned to the frontend from
 // CreateRoom/JoinRoom -- deliberately not signaling.Welcome, so the
@@ -188,9 +197,25 @@ func (a *App) handleEvent(env signaling.Envelope) {
 // handleDataChannelOpen is called by Manager once per remote peer when its
 // data channel opens. Runs on whatever goroutine Pion invokes the Manager's
 // callback from, not the UI goroutine -- runtime.EventsEmit is safe from
-// any goroutine.
-func (a *App) handleDataChannelOpen(peer signaling.PeerID, _ *webrtc.DataChannel) {
+// any goroutine. Sends M4's hardcoded test message and forwards whatever
+// the other side sends back -- this is the actual product-visible proof
+// the data channel works, not just that it opened.
+func (a *App) handleDataChannelOpen(peer signaling.PeerID, dc *webrtc.DataChannel) {
 	runtime.EventsEmit(a.ctx, EventPeerConnected, string(peer))
+
+	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+		runtime.EventsEmit(a.ctx, EventTestMessage, TestMessage{Peer: string(peer), Message: string(msg.Data)})
+	})
+
+	a.mu.Lock()
+	client := a.client
+	a.mu.Unlock()
+	if client == nil { // room was left between connecting and this channel opening
+		return
+	}
+	if err := dc.SendText(fmt.Sprintf("hello from %s", client.PeerID)); err != nil {
+		runtime.LogErrorf(a.ctx, "webrtc: send test message to %s: %v", peer, err)
+	}
 }
 
 // handleDisconnect is called by signalclient when the connection drops for
