@@ -44,8 +44,9 @@ type Manager struct {
 	client        *signalclient.Client
 	onDataChannel OnDataChannel
 
-	mu    sync.Mutex
-	conns map[signaling.PeerID]*webrtc.PeerConnection
+	mu      sync.Mutex
+	conns   map[signaling.PeerID]*webrtc.PeerConnection
+	pending map[signaling.PeerID][]webrtc.ICECandidateInit // candidates that arrived before the remote description was set
 }
 
 // NewManager creates a Manager that sends/receives signaling over client.
@@ -55,6 +56,7 @@ func NewManager(client *signalclient.Client, onDataChannel OnDataChannel) *Manag
 		client:        client,
 		onDataChannel: onDataChannel,
 		conns:         make(map[signaling.PeerID]*webrtc.PeerConnection),
+		pending:       make(map[signaling.PeerID][]webrtc.ICECandidateInit),
 	}
 }
 
@@ -129,6 +131,7 @@ func (m *Manager) handleOffer(ctx context.Context, peer signaling.PeerID, msg Me
 	if err := pc.SetRemoteDescription(*msg.SDP); err != nil {
 		return fmt.Errorf("webrtcsignal: set remote description (offer) from %s: %w", peer, err)
 	}
+	m.flushPending(peer, pc)
 
 	answer, err := pc.CreateAnswer(nil)
 	if err != nil {
@@ -152,9 +155,14 @@ func (m *Manager) handleAnswer(peer signaling.PeerID, msg Message) error {
 	if err := pc.SetRemoteDescription(*msg.SDP); err != nil {
 		return fmt.Errorf("webrtcsignal: set remote description (answer) from %s: %w", peer, err)
 	}
+	m.flushPending(peer, pc)
 	return nil
 }
 
+// handleCandidate applies a trickled ICE candidate, or queues it if it
+// arrived before the remote description was set -- which trickle ICE
+// allows, since candidates and the offer/answer travel as separate relay
+// messages with no ordering guarantee between them.
 func (m *Manager) handleCandidate(peer signaling.PeerID, msg Message) error {
 	if msg.Candidate == nil {
 		return fmt.Errorf("webrtcsignal: candidate message from %s missing candidate", peer)
@@ -163,10 +171,30 @@ func (m *Manager) handleCandidate(peer signaling.PeerID, msg Message) error {
 	if !ok {
 		return fmt.Errorf("webrtcsignal: candidate from %s with no connection", peer)
 	}
+	if pc.RemoteDescription() == nil {
+		m.mu.Lock()
+		m.pending[peer] = append(m.pending[peer], *msg.Candidate)
+		m.mu.Unlock()
+		return nil
+	}
 	if err := pc.AddICECandidate(*msg.Candidate); err != nil {
 		return fmt.Errorf("webrtcsignal: add ICE candidate from %s: %w", peer, err)
 	}
 	return nil
+}
+
+// flushPending applies any candidates queued for peer because they arrived
+// before the remote description was set. Best-effort: one bad trickled
+// candidate shouldn't fail an otherwise-working connection.
+func (m *Manager) flushPending(peer signaling.PeerID, pc *webrtc.PeerConnection) {
+	m.mu.Lock()
+	queued := m.pending[peer]
+	delete(m.pending, peer)
+	m.mu.Unlock()
+
+	for _, c := range queued {
+		_ = pc.AddICECandidate(c)
+	}
 }
 
 // newConn creates peer's connection if it doesn't already exist, wiring its
@@ -194,6 +222,22 @@ func (m *Manager) newConn(peer signaling.PeerID) (*webrtc.PeerConnection, error)
 	m.conns[peer] = pc
 	m.mu.Unlock()
 	return pc, nil
+}
+
+// Close closes every peer connection this Manager owns. Call it when the
+// signaling connection itself ends -- the relay that carries SDP/ICE is
+// gone either way, so a connection this Manager hasn't finished negotiating
+// can't be salvaged.
+func (m *Manager) Close() {
+	m.mu.Lock()
+	conns := m.conns
+	m.conns = make(map[signaling.PeerID]*webrtc.PeerConnection)
+	m.pending = make(map[signaling.PeerID][]webrtc.ICECandidateInit)
+	m.mu.Unlock()
+
+	for _, pc := range conns {
+		pc.Close()
+	}
 }
 
 func (m *Manager) get(peer signaling.PeerID) (*webrtc.PeerConnection, bool) {
