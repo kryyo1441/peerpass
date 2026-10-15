@@ -177,10 +177,42 @@ server crash:
   Windows/macOS/Linux crossplay.
 - Commit: `63581c8 build: add .gitignore for Go/Wails/frontend artifacts`.
 
+## 2026-10-15 — Milestone 4 resumed, part 1 (Pion verification) done
+
+- Project owner resumed M4 after the 2026-10-14 pause/STUN discussion, and
+  split it into 5 parts: (1) verify Pion, (2) peer connection wrapper,
+  (3) signaling glue for SDP/ICE over the existing relay, (4) Wails
+  integration, (5) data channel test message + self-test.
+- Part 1 done: checked `github.com/pion/webrtc/v4` at latest tag `v4.2.23`
+  (2026-10-07) against `go.mod` (needs Go 1.24+; project is on 1.25, fine).
+  Read the actual API — `Configuration.ICEServers`, `NewPeerConnection`,
+  `CreateDataChannel`/`OnDataChannel`, `CreateOffer`/`CreateAnswer`/
+  `SetLocalDescription`/`SetRemoteDescription`, `OnICECandidate`/
+  `AddICECandidate` — all present, shaped like the browser API, no gaps
+  against M4's scope. ADR-004 moved from provisional to accepted. Dependency
+  not yet added to `go.mod` — that's part 2.
+
+## 2026-10-15 — Milestone 4 part 2 (peer connection wrapper) done
+
+- Added `github.com/pion/webrtc/v4 v4.2.23` to `go.mod` (the version
+  verified in part 1).
+- New `internal/peerconn` package: `New()` creates a Pion `PeerConnection`
+  with the public STUN server wired into `ICEServers` at construction time
+  (per the 2026-10-14 decision, not retrofitted), and
+  `CreateDataChannel(pc)` creates the one data channel M4 needs, under a
+  shared `DataChannelLabel` constant both sides of the signaling glue
+  (part 3) will use. Deliberately thin — the offer/answer/ICE-candidate
+  routing logic is signaling glue's job, not this package's.
+  `peerconn_test.go` checks STUN is actually present on the built
+  connection's config and that the data channel gets the right label.
+- `go build ./...` and `go test ./internal/peerconn/...` both pass.
+
 ## Next
 
-Milestone 4 — establish a WebRTC peer connection and exchange a test message
-over a data channel, using the existing signaling relay (`Hub.Relay` /
-`signalclient.Relay`) to carry SDP offers/answers and ICE candidates. See
-`docs/plan.md` open questions before M8 (controller-handoff behavior needs
-clarifying with the project owner first, but that's M8, not M4).
+Milestone 4, part 3 — signaling glue: define the offer/answer/ICE-candidate
+message shapes and route them through the existing
+`signalclient.Relay`/`Hub.Relay` opaque-payload channel, deciding who
+initiates (the room host, when a peer joins) and wiring incoming relay
+messages to the right `peerconn.PeerConnection`. See `docs/plan.md` open
+questions before M8 (controller-handoff behavior needs clarifying with the
+project owner first, but that's M8, not M4).

@@ -7,8 +7,10 @@ tracks **current status and open questions**, not the full spec.
 ## Current milestone
 
 **Milestone 4 — WebRTC peer connection + data channel test message.**
-Explicitly paused at the project owner's request (2026-10-14) — not started.
-Milestones 1–3 are done and merged to `main`.
+Resumed 2026-10-15. Part 1 (verify Pion WebRTC, ADR-004) done — see
+`decisions.md`. Parts 2-5 (peer connection wrapper, signaling glue, Wails
+integration, data channel test + self-test) not started. Milestones 1–3 are
+done and merged to `main`.
 
 ## Roadmap at a glance
 
@@ -19,8 +21,11 @@ Milestones 1–3 are done and merged to `main`.
   - M3: Minimal signaling, N-party room model (see ADR-002). ✅ Done
     (2026-10-14), merged to `main`
   - M4: WebRTC peer connection + data channel test message (see ADR-003,
-    ADR-004). ⏸️ Paused, not started — see the STUN note below for a design
-    decision to carry into it when it starts.
+    ADR-004). 🚧 In progress (resumed 2026-10-15) — Pion verified, peer
+    connection wrapper (`internal/peerconn`) done. Signaling glue, Wails
+    integration, and the data-channel test message not started. See the
+    STUN note below for a design decision already folded into this
+    milestone.
   - M5: Cross-network connectivity test, ICE/STUN/TURN behavior, recorded empirically
 - **Phase C — Core product (input sharing)**
   - M6: Input-event protocol (validation, serialization, ordering, recovery)
