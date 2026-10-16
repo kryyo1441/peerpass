@@ -1,0 +1,11 @@
+# Render blueprint for the standalone signaling server (M5, ADR-008).
+# cmd/signal has no dependency on the Wails/webview toolchain, so Render's
+# native Go runtime builds and runs it directly -- no Dockerfile needed.
+# Deploy: connect this repo in the Render dashboard, which reads this file.
+services:
+  - type: web
+    name: peerpass-signal
+    runtime: go
+    plan: free
+    buildCommand: go build -o bin/signal ./cmd/signal
+    startCommand: ./bin/signal
