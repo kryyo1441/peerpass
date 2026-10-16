@@ -82,8 +82,10 @@ func (a *App) Greet(name string) string {
 	return fmt.Sprintf("Hello %s, It's show time!", name)
 }
 
-// CreateRoom connects to the signaling server at addr (e.g. "127.0.0.1:8080")
-// and creates a new room, becoming its host.
+// CreateRoom connects to the signaling server at addr -- "host:port" for
+// local dev (defaults to ws://), or a full "wss://..." URL for a deployed
+// server reachable over a real network (M5) -- and creates a new room,
+// becoming its host.
 func (a *App) CreateRoom(addr string) (RoomInfo, error) {
 	return a.connect(addr, "")
 }
