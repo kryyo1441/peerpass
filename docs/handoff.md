@@ -34,6 +34,9 @@ duplicate content.
 - [`progress.md`](progress.md) — dated log of what was actually done.
 - [`architecture.md`](architecture.md) — current components.
 - [`learning-log.md`](learning-log.md) — concepts/mistakes/debugging lessons.
+- [`run-project.md`](run-project.md) — running the app on a second device
+  for M5's real cross-network test (points at the deployed signaling
+  server, not localhost).
 - `../README.md` — setup/build/test instructions, security status.
 
 ## What needs to happen next
