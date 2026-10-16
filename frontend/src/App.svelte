@@ -8,6 +8,10 @@
   let room: main.RoomInfo | null = null
   let peers: string[] = []
   let status = 'Not connected.'
+  // M5 test instrument: real cross-network testing needs a way to see
+  // "did WebRTC actually connect" on each machine without reading logs.
+  let webrtcConnectedPeers: string[] = []
+  let lastTestMessage: { peer: string; message: string } | null = null
 
   // The server always sends the full current peer list (not a delta), so
   // this just replaces -- no appending/filtering that could drift out of
@@ -27,6 +31,13 @@
   EventsOn('signal:disconnected', async () => {
     status = 'Lost connection to the signaling server.'
     await leaveRoom(false)
+  })
+
+  EventsOn('webrtc:peer-connected', (peer: string) => {
+    webrtcConnectedPeers = [...webrtcConnectedPeers, peer]
+  })
+  EventsOn('webrtc:test-message', (msg: { peer: string; message: string }) => {
+    lastTestMessage = msg
   })
 
   async function createRoom(): Promise<void> {
@@ -55,6 +66,8 @@
     await LeaveRoom()
     room = null
     peers = []
+    webrtcConnectedPeers = []
+    lastTestMessage = null
     if (announceStatus) status = 'Left room.'
   }
 </script>
@@ -89,6 +102,17 @@
         {/each}
       </ul>
       <button on:click={() => leaveRoom()}>Leave Room</button>
+    </div>
+    <div class="panel">
+      <p>WebRTC connected peers ({webrtcConnectedPeers.length}):</p>
+      <ul>
+        {#each webrtcConnectedPeers as peer (peer)}
+          <li><code>{peer}</code></li>
+        {/each}
+      </ul>
+      {#if lastTestMessage}
+        <p>Last test message from <code>{lastTestMessage.peer}</code>: "{lastTestMessage.message}"</p>
+      {/if}
     </div>
   {/if}
 </main>
