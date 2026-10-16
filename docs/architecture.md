@@ -3,10 +3,13 @@
 Describes real, built components only. Nothing here is aspirational — see
 `docs/plan.md` for what's planned but not yet built.
 
-## Current state (as of Milestone 3)
+## Current state (as of Milestone 4)
 
 Two processes: the Wails desktop app (per player), and a signaling server
-mediating room creation/joining between them. No WebRTC yet — that's M4.
+mediating room creation/joining between them. The apps now also hold a
+direct WebRTC peer connection with each other, negotiated by exchanging
+SDP/ICE as opaque payloads over the same signaling relay (not a separate
+channel) — the signaling server never sees WebRTC content, only forwards it.
 
 ```
 ┌───────────────────────────┐              ┌───────────────────────────┐
@@ -61,10 +64,27 @@ mediating room creation/joining between them. No WebRTC yet — that's M4.
 - **`cmd/signal`** — thin binary: flag parsing (`-addr`, default
   `127.0.0.1:8080`) and `http.ListenAndServe`. All real logic lives in the
   two internal packages above.
+- **`internal/peerconn`** — builds a Pion `webrtc.PeerConnection` with a
+  public STUN server wired into `ICEServers` at construction time (not
+  retrofitted later — see ADR-004's STUN note), plus the one data channel
+  M4 uses, under a shared label constant.
+- **`internal/webrtcsignal`** — the glue between signaling and WebRTC.
+  `Manager` owns one `peerconn`-built connection per remote peer and moves
+  offer/answer/ICE-candidate messages between them and
+  `signalclient.Relay`, as JSON carried in the relay's opaque payload.
+  Queues trickled ICE candidates that arrive before the remote description
+  is set (no ordering guarantee between separate relay messages) and
+  flushes them once it is. `Offer` initiates (the host, to each new peer);
+  `HandleRelay` handles an incoming envelope either way.
 - **`app.go`** — the Wails-bound methods (`CreateRoom`, `JoinRoom`,
   `LeaveRoom`, plus the original `Greet`). Translates signaling events into
-  Wails frontend events (`signal:peer-joined`, `signal:peer-left`,
-  `signal:room-closed`) via `runtime.EventsEmit`.
+  Wails frontend events (`signal:peers`, `signal:room-closed`,
+  `signal:disconnected`) via `runtime.EventsEmit`. Owns a
+  `webrtcsignal.Manager` alongside the signaling client: offers to each
+  peer as it joins (if host), routes relay envelopes to the Manager, and
+  once a peer's data channel opens, sends M4's hardcoded test message and
+  forwards whatever comes back as `webrtc:test-message`.
 - **`frontend/src/App.svelte`** — lets a player type a signaling address,
   create or join a room, and see the live peer list update as others join
-  or leave.
+  or leave. Does not yet show WebRTC connection state or the test message
+  — that's frontend work still to do, not part of M4's Go-side scope.

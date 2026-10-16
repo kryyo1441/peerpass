@@ -191,23 +191,39 @@ building video support now — only not architecting data-channel-only.
 
 ---
 
-## ADR-004 (provisional, unverified): Pion WebRTC as the Go WebRTC implementation
+## ADR-004: Pion WebRTC as the Go WebRTC implementation
 
-- **Date:** 2026-10-14
-- **Status:** Proposed, unverified — this is a placeholder for Milestone 4
+- **Date:** 2026-10-14; verified 2026-10-15
+- **Status:** Accepted
 
 ### Context
 
 The brief proposes Pion WebRTC as the established Go WebRTC implementation to
 use, rather than hand-rolling ICE/SDP/DTLS/SRTP.
 
-### Status of verification
+### Verification (2026-10-15)
 
-**Not yet evaluated.** No compatibility check, no version check, no API read
-has been performed as of this entry. This ADR exists only to record the
-proposed direction and to make clear it is unverified until Milestone 4, when
-it will be properly evaluated against the brief's requirement to check current
-documentation and compatibility before committing.
+Checked `github.com/pion/webrtc/v4` at its latest tag, `v4.2.23` (released
+2026-10-07, so actively maintained). Requires Go 1.24+; this project is on Go
+1.25, so no version conflict. Not yet added to `go.mod` — this check was read-
+only against the upstream repo, no dependency added yet.
+
+API read directly against what M4 needs, all present and shaped like the
+browser's `RTCPeerConnection`/`RTCConfiguration` (so existing WebRTC mental
+model transfers):
+
+- `webrtc.Configuration.ICEServers []ICEServer` — exactly where the STUN
+  server from the decision below goes, at `NewPeerConnection` time.
+- `NewPeerConnection(configuration) (*PeerConnection, error)`
+- `(*PeerConnection).CreateDataChannel(label, options) (*DataChannel, error)`
+  and `OnDataChannel(func(*DataChannel))` for the receiving side.
+- `CreateOffer`/`CreateAnswer`/`SetLocalDescription`/`SetRemoteDescription`
+  for the SDP exchange, and `OnICECandidate`/`AddICECandidate` for trickle
+  ICE — these are exactly the payloads that travel over the existing
+  `signalclient.Relay`/`Hub.Relay` opaque-payload channel (ADR-003).
+
+No gaps found against M4's scope. Accepted as-is; no alternative evaluated
+since the brief specified it and nothing here contradicts that choice.
 
 ### Update — 2026-10-14, M4 paused; STUN design decision recorded ahead of it
 

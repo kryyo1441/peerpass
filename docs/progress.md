@@ -177,10 +177,120 @@ server crash:
   Windows/macOS/Linux crossplay.
 - Commit: `63581c8 build: add .gitignore for Go/Wails/frontend artifacts`.
 
+## 2026-10-15 — Milestone 4 resumed, part 1 (Pion verification) done
+
+- Project owner resumed M4 after the 2026-10-14 pause/STUN discussion, and
+  split it into 5 parts: (1) verify Pion, (2) peer connection wrapper,
+  (3) signaling glue for SDP/ICE over the existing relay, (4) Wails
+  integration, (5) data channel test message + self-test.
+- Part 1 done: checked `github.com/pion/webrtc/v4` at latest tag `v4.2.23`
+  (2026-10-07) against `go.mod` (needs Go 1.24+; project is on 1.25, fine).
+  Read the actual API — `Configuration.ICEServers`, `NewPeerConnection`,
+  `CreateDataChannel`/`OnDataChannel`, `CreateOffer`/`CreateAnswer`/
+  `SetLocalDescription`/`SetRemoteDescription`, `OnICECandidate`/
+  `AddICECandidate` — all present, shaped like the browser API, no gaps
+  against M4's scope. ADR-004 moved from provisional to accepted. Dependency
+  not yet added to `go.mod` — that's part 2.
+
+## 2026-10-15 — Milestone 4 part 2 (peer connection wrapper) done
+
+- Added `github.com/pion/webrtc/v4 v4.2.23` to `go.mod` (the version
+  verified in part 1).
+- New `internal/peerconn` package: `New()` creates a Pion `PeerConnection`
+  with the public STUN server wired into `ICEServers` at construction time
+  (per the 2026-10-14 decision, not retrofitted), and
+  `CreateDataChannel(pc)` creates the one data channel M4 needs, under a
+  shared `DataChannelLabel` constant both sides of the signaling glue
+  (part 3) will use. Deliberately thin — the offer/answer/ICE-candidate
+  routing logic is signaling glue's job, not this package's.
+  `peerconn_test.go` checks STUN is actually present on the built
+  connection's config and that the data channel gets the right label.
+- `go build ./...` and `go test ./internal/peerconn/...` both pass.
+
+## 2026-10-15 — Milestone 4 part 3 (signaling glue) done
+
+- Branched from part 2's work (still on `feature/m4-webrtc`).
+- New `internal/webrtcsignal` package: `Manager` owns one
+  `peerconn`-built peer connection per remote peer (matching the N-party
+  room model, ADR-002, even though M4 only exercises two) and moves
+  offer/answer/ICE-candidate messages between them and the signaling
+  relay. `Message` is the JSON shape carried as the relay's opaque
+  payload. `Offer(ctx, peer)` creates a connection + data channel and
+  sends the SDP offer; `HandleRelay(ctx, env)` dispatches an incoming
+  envelope to offer/answer/candidate handling, creating the connection on
+  first offer. Trickled ICE candidates are relayed automatically via
+  `OnICECandidate`.
+- Test (`webrtcsignal_test.go`) is a real end-to-end check, not a mock:
+  spins up an actual `signalserver`, connects two real
+  `signalclient.Client`s to it, has one `Offer` the other, and asserts
+  the resulting data channels actually open and a message sent on one
+  side arrives on the other. This is the same-machine, two-process test
+  discussed earlier for M4, now automated -- and it substantially covers
+  what part 5's self-test was meant to prove, so part 5 should mostly be
+  App-level wiring + surfacing the test message to the frontend, not
+  re-proving the handshake.
+- `go build ./...`, `go vet ./...`, and `go test ./... -race` all pass.
+
+## 2026-10-15 — Milestone 4 part 4 (Wails integration) done, plus a real bug fix
+
+- `App` now creates a `webrtcsignal.Manager` alongside the signaling
+  client on `CreateRoom`/`JoinRoom`, and closes it in `LeaveRoom` (before
+  the signaling client, so nothing races to use an already-gone relay).
+- `handleEvent`: `TypePeerJoined`'s `From` field is the joining peer's own
+  id (the server stamps it in `Hub.JoinRoom`/`broadcastPeerListEvent`) --
+  used directly, no diffing needed. If this client is host, it calls
+  `Manager.Offer` for that peer. `TypeRelay` envelopes now route to
+  `Manager.HandleRelay` (previously silently ignored). Both run in a
+  goroutine off the signalclient read loop and log via
+  `runtime.LogErrorf` on failure rather than blocking it.
+- New `webrtc:peer-connected` Wails event (payload: peer id string),
+  emitted once a given peer's data channel opens.
+- **Bug found and fixed while wiring this up:** `go test ./... -race`
+  started failing `webrtcsignal`'s end-to-end test intermittently (~1 in
+  6 runs) once relay handling ran through goroutines the way `app.go`
+  now drives it -- `add ICE candidate: remote description is not set`.
+  Root cause: trickled ICE candidates and the offer/answer SDP travel as
+  separate relay messages with no ordering guarantee, so a candidate can
+  legitimately arrive before the SDP that was logically sent first.
+  Fixed by queueing per-peer candidates in `Manager` until
+  `SetRemoteDescription` succeeds, then flushing. Confirmed with 30
+  consecutive `-race` runs, no failures. This was a real correctness gap
+  in part 3's glue, not an app.go issue -- caught by the race detector
+  because app.go's goroutines interleave the read loop differently than
+  the single-goroutine test harness did.
+- `go build ./...`, `go vet ./...`, `go test ./... -race` all pass.
+
+## 2026-10-15 — Milestone 4 part 5 done; Milestone 4 complete
+
+- `handleDataChannelOpen` (`app.go`) now sends a hardcoded
+  `"hello from <peerId>"` text message once a peer's data channel opens,
+  and forwards whatever message arrives on that channel as a new
+  `webrtc:test-message` Wails event (`TestMessage{Peer, Message}`).
+  Guards against the room having been left between the channel opening
+  and the send (`a.client` nil check).
+- This is the actual product-visible goal of M4: not just that a data
+  channel opens, but that application data crosses it and reaches the
+  other side. The handshake correctness itself was already proven by
+  part 3's end-to-end test (two real signaling clients, real
+  offer/answer, message round-trip) -- this step is the thin, already-
+  tested-underneath layer that makes it visible to the app.
+- `go build ./...`, `go vet ./...`, `go test ./... -race` all pass.
+- **Milestone 4 is complete.** All 5 parts done: Pion verified (ADR-004),
+  `internal/peerconn`, `internal/webrtcsignal`, Wails integration, and
+  the test message. Everything is on `feature/m4-webrtc`, not yet merged
+  to `main` -- merge is a separate decision for the project owner.
+- **Known gap, deliberately out of scope:** the Svelte frontend doesn't
+  subscribe to or display `webrtc:peer-connected`/`webrtc:test-message`
+  at all. M4's brief was "establish a WebRTC peer connection and exchange
+  a test message over a data channel" -- read as Go-side scope, same as
+  M2 only needing one verified Go↔frontend call. Surfacing this in the UI
+  is a product decision, not assumed here.
+
 ## Next
 
-Milestone 4 — establish a WebRTC peer connection and exchange a test message
-over a data channel, using the existing signaling relay (`Hub.Relay` /
-`signalclient.Relay`) to carry SDP offers/answers and ICE candidates. See
+Project owner to decide: merge `feature/m4-webrtc` to `main`, and whether
+the frontend should display WebRTC connection state / the test message
+before moving on, or whether M5 (cross-network connectivity test,
+ICE/STUN/TURN behavior, recorded empirically) starts first. See
 `docs/plan.md` open questions before M8 (controller-handoff behavior needs
 clarifying with the project owner first, but that's M8, not M4).
