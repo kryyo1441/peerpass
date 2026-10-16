@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
 	"sync/atomic"
 
 	"github.com/coder/websocket"
@@ -17,6 +18,16 @@ import (
 
 	"peerpass/internal/signaling"
 )
+
+// splitSchemeHost splits addr into a ws scheme and host. A bare host:port
+// (local dev) defaults to "ws"; a full "ws://..." or "wss://..." URL (a
+// real deployment, M5) keeps its scheme.
+func splitSchemeHost(addr string) (scheme, host string) {
+	if s, rest, ok := strings.Cut(addr, "://"); ok {
+		return s, rest
+	}
+	return "ws", addr
+}
 
 // Welcome is the server's first message, decoded for callers.
 type Welcome struct {
@@ -41,8 +52,11 @@ type Client struct {
 	IsHost bool
 }
 
-// Connect dials the signaling server at addr (host:port, no scheme) and
-// either creates a new room (room == "") or joins an existing one. The
+// Connect dials the signaling server at addr and either creates a new room
+// (room == "") or joins an existing one. addr is host:port (defaults to the
+// ws scheme, for local dev) or a full ws://.../wss://... URL -- wss is
+// needed for a real deployment reachable from outside localhost (M5),
+// since that traffic crosses a real network rather than a loopback. The
 // returned Client's read loop runs until ctx is cancelled or the connection
 // drops; every subsequent server message is passed to onEvent.
 //
@@ -56,7 +70,8 @@ type Client struct {
 // leave/disconnect and on application shutdown -- this client does not
 // outlive its caller's lifecycle management.
 func Connect(ctx context.Context, addr string, room signaling.RoomCode, onEvent EventHandler, onDisconnect func()) (*Client, Welcome, error) {
-	u := url.URL{Scheme: "ws", Host: addr, Path: "/ws"}
+	scheme, host := splitSchemeHost(addr)
+	u := url.URL{Scheme: scheme, Host: host, Path: "/ws"}
 	if room != "" {
 		q := u.Query()
 		q.Set("room", string(room))
