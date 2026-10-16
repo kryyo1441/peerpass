@@ -67,6 +67,13 @@ go run ./cmd/signal
 The app's "Signaling server" field should then point at that address
 (`127.0.0.1:8080` by default).
 
+For a real deployment (M5, cross-network testing), the server binds
+`0.0.0.0:$PORT` instead when `$PORT` is set in the environment -- this is
+how free-tier hosts like Render assign a port, and it only takes effect if
+you deliberately set it. Point the app's "Signaling server" field at the
+deployed server's `wss://...` URL in that case (plain `host:port` still
+means `ws://` for local dev).
+
 ## Testing
 
 ```sh
