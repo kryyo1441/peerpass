@@ -2,6 +2,7 @@ package webrtcsignal
 
 import (
 	"context"
+	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -36,6 +37,28 @@ func (b *handlerBox) call(env signaling.Envelope) {
 	b.mu.Unlock()
 	if f != nil {
 		f(env)
+	}
+}
+
+// TestCandidateBeforeOfferIsQueued covers the M5 cross-network failure: a
+// trickled candidate reaching the answerer before the offer has created its
+// connection must be queued for flushPending, not dropped.
+func TestCandidateBeforeOfferIsQueued(t *testing.T) {
+	m := NewManager(nil, nil)
+	payload, err := json.Marshal(Message{
+		Kind:      kindCandidate,
+		Candidate: &webrtc.ICECandidateInit{Candidate: "candidate:1 1 udp 2130706431 192.0.2.1 50000 typ host"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	env := signaling.Envelope{Type: signaling.TypeRelay, From: "offerer", Payload: payload}
+	if err := m.HandleRelay(context.Background(), env); err != nil {
+		t.Fatalf("HandleRelay: %v", err)
+	}
+	if got := len(m.pending["offerer"]); got != 1 {
+		t.Fatalf("pending candidates = %d, want 1", got)
 	}
 }
 
