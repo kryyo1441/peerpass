@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
 
 	"github.com/pion/webrtc/v4"
@@ -217,10 +218,19 @@ func (m *Manager) newConn(peer signaling.PeerID) (*webrtc.PeerConnection, error)
 		if c == nil { // nil marks end of gathering, nothing to send
 			return
 		}
+		log.Printf("webrtc: %s local candidate %s %s", peer, c.Typ, c.Protocol)
 		init := c.ToJSON()
 		// Signaling-client lifetime context, not request-scoped -- a trickled
 		// candidate found after the caller's own ctx has nothing tying it to.
-		_ = m.sendRelay(context.Background(), peer, Message{Kind: kindCandidate, Candidate: &init})
+		if err := m.sendRelay(context.Background(), peer, Message{Kind: kindCandidate, Candidate: &init}); err != nil {
+			log.Printf("webrtc: %s send candidate: %v", peer, err)
+		}
+	})
+	// Cross-network failures (M5) are otherwise silent: ICE just never
+	// reaches "connected". These states are what tell NAT trouble apart
+	// from signaling trouble.
+	pc.OnICEConnectionStateChange(func(s webrtc.ICEConnectionState) {
+		log.Printf("webrtc: %s ICE %s", peer, s)
 	})
 
 	m.mu.Lock()
