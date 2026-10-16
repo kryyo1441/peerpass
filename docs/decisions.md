@@ -361,10 +361,10 @@ write mutex we'd have to get right ourselves.
 
 ---
 
-## ADR-008 (proposed, unverified): Signaling server hosting
+## ADR-008: Signaling server hosting
 
-- **Date:** 2026-10-14
-- **Status:** Proposed, not yet implemented or verified — local-only for now
+- **Date:** 2026-10-14 (proposed), accepted and deployed 2026-10-16 (M5)
+- **Status:** Accepted — deployed on Render's free tier
 
 ### Context
 
@@ -372,13 +372,30 @@ The brief requires near-zero hosting cost and prefers a free-tier host over
 requiring the game-hosting player to configure port forwarding (Fly.io,
 Render, Oracle Cloud free tier, or similar).
 
+### Decision
+
+**Render**, over Fly.io and Oracle Cloud. As of 2026-10-16: Fly.io no longer
+offers a free tier for new signups (pay-as-you-go only, credit card
+required). Oracle Cloud's Always Free compute allowance was mid-cut and its
+account setup is heavier (SSH/firewall rules, reported ARM capacity issues).
+Render is genuinely free (no credit card), deploys straight from this repo
+via `render.yaml`, and — since a February 2026 change — free web services
+stay awake while an active WebSocket connection is receiving messages,
+only spinning down after 15 minutes of total silence (~1 min cold-start to
+wake). That's an acceptable tradeoff for manual empirical testing.
+
 ### Status of verification
 
-**Not yet evaluated.** Milestone 3 only runs `cmd/signal` locally
-(`127.0.0.1:8080`) for development and the two-instance manual test. No
-free-tier host has been signed up for, no deployment has happened, and no
-current pricing/limits have been checked. This ADR is a placeholder for
-Milestone 5 (cross-network connectivity testing), which is also where a real
-deployment would happen -- and only with the project owner's explicit
-permission, since deploying to a third-party service is a remote, externally
-visible action, not a local one.
+**Deployed and reachable.** `cmd/signal` is live at
+`https://peerpass-signal.onrender.com` (ws endpoint:
+`wss://peerpass-signal.onrender.com/ws`), deployed from
+`feature/m5-crossnet` via the `render.yaml` blueprint
+(`go build -o bin/signal ./cmd/signal`). Confirmed reachable: a plain GET
+to `/ws` returns `426 Upgrade Required`, as expected for a live
+WebSocket-only endpoint hit without an Upgrade header. Binds
+`0.0.0.0:$PORT` per Render's convention (see `cmd/signal/main.go`).
+
+Per ADR-005, this is still an unauthenticated signaling server reachable
+from the open internet — anyone with a room code can join. Acceptable for
+M5's empirical connectivity test; must not be treated as production-ready
+or safe for untrusted use until M9 (auth) lands.
