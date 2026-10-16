@@ -42,7 +42,7 @@
 
   async function createRoom(): Promise<void> {
     try {
-      room = await CreateRoom(signalAddr)
+      room = await CreateRoom(signalAddr.trim())
       peers = room.peers
       status = `Room created: ${room.room}`
     } catch (err) {
@@ -52,7 +52,7 @@
 
   async function joinRoom(): Promise<void> {
     try {
-      room = await JoinRoom(signalAddr, joinCode.toUpperCase())
+      room = await JoinRoom(signalAddr.trim(), joinCode.toUpperCase())
       peers = room.peers
       status = `Joined room: ${room.room}`
     } catch (err) {
