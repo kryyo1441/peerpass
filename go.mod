@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/coder/websocket v1.8.15
+	github.com/pion/webrtc/v4 v4.2.23
 	github.com/wailsapp/wails/v2 v2.16.0
 )
 
@@ -38,7 +39,6 @@ require (
 	github.com/pion/stun/v4 v4.0.1 // indirect
 	github.com/pion/transport/v5 v5.1.1 // indirect
 	github.com/pion/turn/v5 v5.1.2 // indirect
-	github.com/pion/webrtc/v4 v4.2.23 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
