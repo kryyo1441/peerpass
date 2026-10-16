@@ -162,21 +162,26 @@ func (m *Manager) handleAnswer(peer signaling.PeerID, msg Message) error {
 // handleCandidate applies a trickled ICE candidate, or queues it if it
 // arrived before the remote description was set -- which trickle ICE
 // allows, since candidates and the offer/answer travel as separate relay
-// messages with no ordering guarantee between them.
+// messages with no ordering guarantee between them. That includes arriving
+// before the offer has even created this peer's connection: the offerer
+// can trickle a candidate before its own offer is sent, and app.go handles
+// each relay on its own goroutine.
+//
+// The check and the append share one critical section with flushPending's
+// drain, so a candidate is either queued before the drain or applied
+// directly after -- never appended just after a drain and stranded.
 func (m *Manager) handleCandidate(peer signaling.PeerID, msg Message) error {
 	if msg.Candidate == nil {
 		return fmt.Errorf("webrtcsignal: candidate message from %s missing candidate", peer)
 	}
-	pc, ok := m.get(peer)
-	if !ok {
-		return fmt.Errorf("webrtcsignal: candidate from %s with no connection", peer)
-	}
-	if pc.RemoteDescription() == nil {
-		m.mu.Lock()
+	m.mu.Lock()
+	pc, ok := m.conns[peer]
+	if !ok || pc.RemoteDescription() == nil {
 		m.pending[peer] = append(m.pending[peer], *msg.Candidate)
 		m.mu.Unlock()
 		return nil
 	}
+	m.mu.Unlock()
 	if err := pc.AddICECandidate(*msg.Candidate); err != nil {
 		return fmt.Errorf("webrtcsignal: add ICE candidate from %s: %w", peer, err)
 	}
